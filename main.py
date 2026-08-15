@@ -6,29 +6,28 @@ import datetime
 from dotenv import load_dotenv
 from discord.ext import commands
 from discord import app_commands
+from discord.ui import Select
 
 total_times = dict({})
-start_times = dict({})
+current_times = dict({})
+active_hours = dict({})
 
 with open("total_times.json", "r", encoding = "utf-8") as f: total_times = json.load(open("total_times.json"))
-with open("start_times.json", "r", encoding = "utf-8") as f: start_times = json.load(open("start_times.json"))
+with open("current_times.json", "r", encoding = "utf-8") as f: current_times = json.load(open("current_times.json"))
+with open("active_hours.json", "r", encoding = "utf-8") as f: active_hours = json.load(open("active_hours.json"))
+
+GUILD = discord.Object(id = 1238093282852999229)
 
 class Client(commands.Bot):
     async def on_ready(self):
         print(f"Logged on as {self.user}!")
 
         try:
-            guild = discord.Object(id=1238093282852999229)
-            synced = await self.tree.sync(guild = guild)
-            print(f"Synced {len(synced)} commands to guild {guild.id}")
+            synced = await self.tree.sync(guild = GUILD)
+            print(f"Synced {len(synced)} commands to guild {GUILD.id}")
 
         except Exception as err:
             print(f"Error syncing commands: {err}")
-
-    async def on_message(self, message):
-        if message.author == self.user:
-            return
-        await message.reply(f"{message.content}")
 
 handler = logging.FileHandler(filename = "bot.log", encoding = "utf-8", mode = "w")
 intents = discord.Intents.default()
@@ -39,18 +38,24 @@ intents.members = True
 intents.dm_reactions = True
 client = Client(command_prefix = "p!", intents = intents)
 
-GUILD = discord.Object(id = 1238093282852999229)
-
 shift_group = app_commands.Group(name = "shift", description = "Shift system")
 
 @shift_group.command(name = "start", description = "Set your status to currently moderating")
-async def start(interaction: discord.Interaction):
-    mod = interaction.user.id
-    if str(mod) in start_times:
-        return await interaction.response.send_message(f"You already started a shift <t:{round(start_times[str(mod)])}:R> ago!")
+async def start(interaction: discord.Interaction, dms: bool=False):
     now = datetime.datetime.now().timestamp()
-    start_times[str(mod)] = now
-    with open("start_times.json", "w", encoding = "utf-8") as f: json.dump(start_times, f, ensure_ascii = False, indent = 4)
+    details = {
+        "start": now,
+        "dms": False,
+        "paused": False,
+        "pauses": []
+    }
+    if dms:
+        details["dms"] = True
+    mod = str(interaction.user.id)
+    if mod in current_times:
+        return await interaction.response.send_message(f"You already started a shift <t:{round(current_times[mod])}:R> ago!")
+    current_times[mod] = details
+    with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
     await interaction.response.send_message("Started, check your DMs!")
     startedEmbed = discord.Embed(
         title = "Shift started!",
@@ -62,47 +67,87 @@ async def start(interaction: discord.Interaction):
 
 @shift_group.command(name = "end", description = "Ends your current moderating status")
 async def end(interaction: discord.Interaction):
-    mod = interaction.user.id
-    if not str(mod) in start_times:
+    mod = str(interaction.user.id)
+    if not mod in current_times:
         return await interaction.response.send_message(f"You have not started a shift!")
     else:
-        start = start_times[str(mod)]
-        start_times.pop(str(mod), None)
-        with open("start_times.json", "w", encoding = "utf-8") as f: json.dump(start_times, f, ensure_ascii = False, indent = 4)
+        start = current_times[mod]["start"]
+        current_times.pop(mod, None)
+        with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
         end = datetime.datetime.now().timestamp()
         length = (end - start)
         length_hours = length/3600
-        if str(mod) in total_times:
-            total_times[str(mod)] += length
+        if mod in total_times:
+            total_times[mod] += length
         else:
-            total_times[str(mod)] = length
+            total_times[mod] = length
         with open("total_times.json", "w", encoding = "utf-8") as f: json.dump(total_times, f, ensure_ascii = False, indent = 4)
         await interaction.response.send_message(f"Shift ended. Your shift lasted `{round(length_hours, 1)}` hours!")
 
 
 @shift_group.command(name = "pause", description = "Pauses your shift, automatically stops it after 90 minutes")
 async def pause(interaction: discord.Interaction):
-    await interaction.response.send_message("paused")
+    now = datetime.datetime.now().timestamp()
+    mod = str(interaction.user.id)
+    if not mod in current_times:
+        return await interaction.response.send_message(f"You have not started a shift!")
+    details = current_times[mod]
+    if details["paused"]:
+        return await interaction.response.send_message(f"Shift already paused!")
+    details["paused"] = True
+    details["pauses"].append(now)
+    with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
+    await interaction.response.send_message("Shift paused!")
 
 @shift_group.command(name = "continue", description = "Continues your shift if it is paused")
 async def cont(interaction: discord.Interaction):
+    now = datetime.datetime.now().timestamp()
+    mod = str(interaction.user.id)
+    if not mod in current_times:
+        return await interaction.response.send_message(f"You have not started a shift!")
+    details = current_times[mod]
+    if not details["paused"]:
+        return await interaction.response.send_message(f"Shift is not paused!")
+    details["paused"] = False
+    last_entry = len(details["pauses"]) - 1
+    details["pauses"][last_entry] = now - details["pauses"][last_entry]
+    with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
     await interaction.response.send_message("continued")
 
 client.tree.add_command(shift_group, guild = GUILD)
 
+active_group = app_commands.Group(name = "active", description = "Active Hours tracker")
+
+@active_group.command(name = "set", description = "Set your active hours")
+async def set(interaction: discord.Interaction):
+    return
+
 help_group = app_commands.Group(name = "help", description = "Information on the bot and its commands")
 
-@app_commands.command(name = "help")
-async def help(interaction: discord.Interaction):
+@help_group.command(name = "general", description = "Information on the bot and its commands")
+async def general(interaction: discord.Interaction):
     helpEmbed = discord.Embed(
         title = "Help",
-        description = "Run `/help [category]` to get more detailed information about each category!\nThe bot exists for the Sining Gang moderation team to better support each other and its members, allowing us to share information about our current availability and remind ourselves about it with a few useful commands!\nCreated and managed by <@1238007355363299329>! Please ping/DM for any concerns.",
+        description = "Run `/help [category]` to get more detailed information about each category!\nThe bot exists for the Sining Gang moderation team to better support each other and its members, allowing us to share information about our current availability and remind ourselves about it with a few useful commands!",
         color = discord.Color.blurple()
     )
     helpEmbed.set_thumbnail(url = "https://cdn.discordapp.com/icons/1522861009386209320/a_d38d426dbc09afb9d94859870cf4cf47.webp?size=512&animated=true")
-    helpEmbed.add_field(name = "Shift System", value = "`/shift start` - Starts a new shift\n`/shift pause` - Pauses your current shift\n`/shift continue` - Unpauses your current shift\n`/shift end` - Ends your current shift")
-    helpEmbed.add_field(name = "Active Hours", value = "`/active set` - Sets the days and hours when you're available to actively moderate the server\n`/active view` - Displays in chat when your active hours are")
-    helpEmbed.add_field(name = "On-Duty Display", value = "A message that displays to all members of the server who is currently on shift and people in their active hours.")
+    helpEmbed.add_field(
+        name = "Shift System",
+        value = "`/shift start [dms: true/false]` - Starts a new shift, DMs off by default\n`/shift pause` - Pauses your current shift\n`/shift continue` - Unpauses your current shift\n`/shift end` - Ends your current shift",
+        inline = False
+    )
+    helpEmbed.add_field(
+        name = "Active Hours",
+        value = "`/active set` - Sets the days and hours when you're available to actively moderate the server\n`/active view` - Displays in chat when your active hours are\n`/active disable` - Sets all your active hours to none\n`/active enable` - Returns your saved active hours",
+        inline = False
+    )
+    helpEmbed.add_field(
+        name = "On-Duty Display",
+        value = "A message that displays to all members of the server who is currently on shift and people in their active hours.",
+        inline = False
+    )
+    helpEmbed.set_footer(text = "Created and managed by Carol! Ping/DM for any concerns.")
     await interaction.response.send_message(embed = helpEmbed)
 
 @help_group.command(name = "shift", description = "Shift System detailed information")
@@ -113,13 +158,13 @@ async def shift(interaction: discord.Interaction):
         color = discord.Color.blue()
     )
     shiftEmbed.add_field(
-        name = "`/shift start`",
-        value = "This starts a shift, and it has an optional parameter if you would like to specify that your DMs are open (by default they won't be). The bot will reply and send you a DM explaining that you started a shift. You are meant to actively moderate the server during a shift, not every single message and noise, but checking in every once in a while in order to make sure everything's in order. During the shift, the bot will DM you to ensure you're still active. You will have to react to this DM otherwise your shift will be paused, along with its timer of course (more information on paused shifts later). Starting a shift also starts a timer which counts how long your shift lasts.",
+        name = "`/shift start [dms: true/false]`",
+        value = "This starts a shift, and it has an optional parameter if you would like to specify that your DMs are open (they won't be if you don't specify). The bot will reply and send you a DM explaining that you started a shift. You are meant to actively moderate the server during a shift, not every single message and noise, but checking in every once in a while in order to make sure everything's in order. During the shift, the bot will DM you to ensure you're still active. You will have to react to this DM otherwise your shift will be paused, along with its timer of course (more information on paused shifts later). Starting a shift also starts a timer which counts how long your shift lasts.",
         inline = False
     )
     shiftEmbed.add_field(
         name = "`/shift pause`",
-        value = "You can use this to manually pause a shift, for example if you need to take a break for a while. Paused shifts will automatically end after an hour.",
+        value = "You can use this to manually pause a shift, for example if you need to take a break for a while. Paused shifts will automatically end after 90 minutes.",
         inline = False
     )
     shiftEmbed.add_field(
@@ -158,12 +203,12 @@ async def active(interaction: discord.Interaction):
     )
     activeEmbed.add_field(
         name = "`/active enable`",
-        value = "Revert the previous change.",
+        value = "Revert the previous change, putting back the active hours you set.",
         inline = False
-        )
+    )
     await interaction.response.send_message(embed = activeEmbed)
 
-@help_group.command(name = "on-duty_display", description = "On-Duty Display detailed information")
+@help_group.command(name = "onduty_display", description = "On-Duty Display detailed information")
 async def onduty(interaction: discord.Interaction):
     ondutyEmbed = discord.Embed(
         title = "Help - On-Duty Display",
@@ -185,10 +230,4 @@ async def check_status():
         return
 
 load_dotenv()
-# dict = {"key":"value"}
-# with open("test.json", "w", encoding = "utf-8") as f: json.dump(dict, f, ensure_ascii = False, indent = 4)
-# with open("test.json", "r", encoding = "utf-8") as f: new = json.load(open("test.json"))
-# new["test"] = "testing"
-# with open("test.json", "w", encoding = "utf-8") as f: json.dump(new, f, ensure_ascii = False, indent = 4)
-# dict.pop("key", None)
 client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
