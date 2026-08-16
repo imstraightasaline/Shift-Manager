@@ -6,7 +6,7 @@ It is not available to be invited as I do not have the resources to host a publi
 
 ---
 
-Join Sining Gang, the Filipino Artists server (everyone is welcome!): [discord.gg/sininggang](https://discord.gg/sininggang)!
+Join Sining Gang, the Filipino Artists server (everyone is welcome!): [discord.gg/sininggang](https://discord.gg/sininggang)
 
 Credits to whoever made a similar system in [Alpine Ascents Roblox](https://x.com/AlpineRBLX).
 
