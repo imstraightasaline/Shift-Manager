@@ -1,6 +1,14 @@
 # Shift Manager
 
-A Discord bot I created to help monitor and display Moderators' activity! Credits to whoever made the a similar system in [Alpine Ascents Roblox](https://x.com/AlpineRBLX).
+A Discord bot I created for Sining Gang to help monitor and display Moderators' activity!
+
+It is not available to be invited as I do not have the resources to host a public bot, but it is open-source for anyone who'd like to take inspiration!
+
+---
+
+Join Sining Gang, the Filipino Artists server (everyone is welcome!): [discord.gg/sininggang](https://discord.gg/sininggang)!
+
+Credits to whoever made a similar system in [Alpine Ascents Roblox](https://x.com/AlpineRBLX).
 
 ## Requirements
 
@@ -23,3 +31,7 @@ Moderators can set their active days and hours, and the bot will remind them whe
 
 ### On-Duty Display
 Displays a message in public chat of people on shift and also those in their active hours so server members can ping/DM moderators in case something happens.
+
+---
+
+### Please DM dcarolena on Discord about any concerns, thank you!
