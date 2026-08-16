@@ -34,4 +34,4 @@ Displays a message in public chat of people on shift and also those in their act
 
 ---
 
-### Please DM dcarolena on Discord about any concerns, thank you!
+### Please DM `dcarolena` on Discord about any concerns, thank you!
