@@ -22,7 +22,7 @@ class Client(commands.Bot):
     async def on_ready(self):
         print(f"Logged on as {self.user}!")
 
-        mod_check.start()
+        status_check.start()
 
         try:
             synced = await self.tree.sync(guild = GUILD)
@@ -51,9 +51,9 @@ async def start(interaction: discord.Interaction, dms: bool=False):
         "paused": False,
         "pauses": [],
         "status_check": {
-            {"msg": 0},
-            {"next": (now + 5)}
-        } # 1800
+            "msg": 0,
+            "next": (now + 3) # 1800
+        }
     }
     if dms:
         details["dms"] = True
@@ -71,24 +71,27 @@ async def start(interaction: discord.Interaction, dms: bool=False):
     startedEmbed.set_thumbnail(url = "https://cdn.discordapp.com/icons/1522861009386209320/a_d38d426dbc09afb9d94859870cf4cf47.webp?size=512&animated=true")
     await interaction.user.send(embed = startedEmbed)
 
+async def endShift(mod):
+    start = current_times[mod]["start"]
+    current_times.pop(mod, None)
+    with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
+    end = datetime.datetime.now().timestamp()
+    length = (end - start)
+    length_hours = round(length/3600, 1)
+    if mod in total_times:
+        total_times[mod] += length
+    else:
+        total_times[mod] = length
+    with open("total_times.json", "w", encoding = "utf-8") as f: json.dump(total_times, f, ensure_ascii = False, indent = 4)
+    return length_hours
+
 @shift_group.command(name = "end", description = "Ends your current moderating status")
 async def end(interaction: discord.Interaction):
     mod = str(interaction.user.id)
     if not mod in current_times:
         return await interaction.response.send_message(f"You have not started a shift!")
     else:
-        start = current_times[mod]["start"]
-        current_times.pop(mod, None)
-        with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
-        end = datetime.datetime.now().timestamp()
-        length = (end - start)
-        length_hours = length/3600
-        if mod in total_times:
-            total_times[mod] += length
-        else:
-            total_times[mod] = length
-        with open("total_times.json", "w", encoding = "utf-8") as f: json.dump(total_times, f, ensure_ascii = False, indent = 4)
-        await interaction.response.send_message(f"Shift ended. Your shift lasted `{round(length_hours, 1)}` hours!")
+        await interaction.response.send_message(f"Shift ended. Your shift lasted `{await endShift(mod)}` hours!")
 
 
 @shift_group.command(name = "pause", description = "Pauses your shift, automatically stops it after 90 minutes")
@@ -230,34 +233,41 @@ async def onduty(interaction: discord.Interaction):
 
 client.tree.add_command(help_group, guild = GUILD)
 
-@tasks.loop(seconds=1)
-async def mod_check():
-    for mod in current_times:
+@tasks.loop(minutes = 1)
+async def status_check():
+    tempdict = current_times
+    for mod in tempdict:
         now = datetime.datetime.now().timestamp()
-        if now > current_times[mod]["status_check"]["next"] and current_times[mod]["paused"] is False:
-            user = client.get_user(int(mod))
-            if current_times[mod]["status_check"]["msg"] == 0:
-                checkEmbed = discord.Embed(
-                    title = "Status Check",
-                    description = "Hello! If you're still here, please click the reaction down below. If you don't react within 10 minutes, your shift will be paused. Thank you!",
-                    color = discord.Color.random()
-                )
-                button = Button(label = "Still here!", style = discord.ButtonStyle.primary, emoji = "<:teehee:1524809416149569588>")
-                async def confirm(interaction):
-                    current_times[mod]["next_check"] = (now + 5)
+        user = client.get_user(int(mod))
+        if not current_times[mod]["paused"]:
+            if now > current_times[mod]["status_check"]["next"]:
+                if now > (current_times[mod]["status_check"]["next"] + 600): # 600
+                    check = await user.fetch_message(current_times[mod]["status_check"]["msg"])
+                    current_times[mod]["paused"] = True
+                    current_times[mod]["pauses"].append(now)
                     with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
-                    return await interaction.response.edit_message(f"<t:{round(now)}:R>\nThank you for your service :saluting_face:", embed = None, view = None)
-                view = View()
-                view.add_item(button)
-                with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
-                await user.send(f"<t:{round(now)}:R>", embed = checkEmbed, view = view)
-            elif now > (current_times[mod]["status_check"]["next"] + 5): # 600
-                current_times[mod]["paused"] = True
-                current_times[mod]["pauses"].append(now)
-                with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
-                check = await client.get_message(user, current_times[mod]["status_check"]["msg"])
-                await check.edit_message(view = None)
-                return await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{round(now) + 3600}:R>")
+                    await check.edit(view = None)
+                    return await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{round(now) + 5400}:R>.")
+                else:
+                    checkEmbed = discord.Embed(
+                        title = "Status Check",
+                        description = "Hello! If you're still here, please click the reaction down below. If you don't react within 10 minutes, your shift will be paused. Thank you!",
+                        color = discord.Color.random()
+                    )
+                    button = Button(label = "Still here!", style = discord.ButtonStyle.primary, emoji = "<:teehee:1524809416149569588>")
+                    async def confirm(interaction):
+                        current_times[mod]["status_check"]["next"] = (now + 10)
+                        with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
+                        return await interaction.response.edit_message(content = f"<t:{round(now)}:R>\nYou've confirmed your active status! Thank you for your service. :saluting_face:", embed = None, view = None)
+                    button.callback = confirm
+                    view = View()
+                    view.add_item(button)
+                    with open("current_times.json", "w", encoding = "utf-8") as f: json.dump(current_times, f, ensure_ascii = False, indent = 4)
+                    msg = await user.send(f"<t:{round(now)}:R>", embed = checkEmbed, view = view)
+                    current_times[mod]["status_check"]["msg"] = msg.id
+                    return
+        elif now > (current_times[mod]["pauses"][len(current_times[mod]["pauses"]) - 1] + 5400): # 5400
+            return await user.send(f"Your shift has automatically ended due to being paused for over 90 minutes! It lasted for `{await endShift(mod)}` hours.")
 
 load_dotenv()
 client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
