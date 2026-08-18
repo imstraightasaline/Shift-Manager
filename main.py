@@ -43,10 +43,8 @@ class Client(commands.Bot):
 handler = logging.FileHandler(filename = "bot.log", encoding = "utf-8", mode = "w")
 intents = discord.Intents.default()
 intents.message_content = True
-intents.reactions = True
 intents.guilds = True
 intents.members = True
-intents.dm_reactions = True
 client = Client(command_prefix = "p!", intents = intents)
 
 shift_group = app_commands.Group(name = "shift", description = "Shift system")
@@ -61,20 +59,20 @@ async def start(interaction: discord.Interaction, dms: bool=False):
         "pauses": [],
         "status_check": {
             "msg": 0,
-            "next": (now + 10) # 1800
+            "next": (now + 1800) # 1800
         }
     }
     if dms:
         details["dms"] = True
     mod = str(interaction.user.id)
     if mod in data["current_times"]:
-        return await interaction.response.send_message(f"Hey {interaction.user.mention}, you already started a shift <t:{round(data["current_times"][mod]["start"])}:R> ago!")
+        return await interaction.response.send_message(f"You already started a shift <t:{round(data["current_times"][mod]["start"])}:R> ago!", ephemeral = True)
     data["current_times"][mod] = details
     await handleFile("current_times", "write")
-    await interaction.response.send_message(f"Started for {interaction.user.mention}, check your DMs!")
+    await interaction.response.send_message(f"{interaction.user.mention} has started a shift, check your DMs!")
     startedEmbed = discord.Embed(
         title = "Shift started!",
-        description = f"Hi {interaction.user.nick}! You have started a shift in Sining Gang, meaning that you are now actively moderating the server, and your status will be updated for all members to see. This bot will periodically be DMing you to check if you're still active, so please read the instructions once it does.\n\nTo end your shift, run `/shift_end`.",
+        description = f"Hi {interaction.user.mention}! You have started a shift in Sining Gang, meaning that you are now actively moderating the server, and your status will be updated for all members to see. This bot will periodically be DMing you to check if you're still active, so please read the instructions once it does.\n\nTo end your shift, run `/shift_end`.",
         color = discord.Color.blurple()
     )
     startedEmbed.set_thumbnail(url = "https://cdn.discordapp.com/icons/1522861009386209320/a_d38d426dbc09afb9d94859870cf4cf47.webp?size=512&animated=true")
@@ -88,10 +86,12 @@ async def endShift(mod): # add deduction from pauses
         check = await user.fetch_message(lastCheck)
         await check.edit(content = f"<t:{round(end)}:R>\n> Status Check cancelled as the shift has ended.", embed = None, view = None)
     start = data["current_times"][mod]["start"]
+    length = (end - start)
+    for pause in data["current_times"][mod]["pauses"]:
+        length -= pause
+    length_hours = round(length/3600, 1)
     data["current_times"].pop(mod, None)
     await handleFile("current_times", "write")
-    length = (end - start)
-    length_hours = round(length/3600, 1)
     if mod in data["total_times"]:
         data["total_times"][mod] += length
     else:
@@ -99,13 +99,22 @@ async def endShift(mod): # add deduction from pauses
     await handleFile("total_times", "write")
     return length_hours
 
+async def resumeShift(mod):
+    now = datetime.datetime.now().timestamp()
+    data["current_times"][mod]["paused"] = False
+    last_entry = len(data["current_times"][mod]["pauses"]) - 1
+    data["current_times"][mod]["pauses"][last_entry] = (now - data["current_times"][mod]["pauses"][last_entry])
+    data["current_times"][mod]["status_check"]["next"] = (now + 1800)
+    await handleFile("current_times", "write")
+
 @shift_group.command(name = "end", description = "Ends your current moderating status")
 async def end(interaction: discord.Interaction):
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
-        return await interaction.response.send_message(f"You have not started a shift!")
-    else:
-        await interaction.response.send_message(f"Shift ended. Your shift lasted `{await endShift(mod)}` hours!")
+        return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
+    elif data["current_times"][mod]["paused"]:
+        await resumeShift(mod)
+    await interaction.response.send_message(f"Shift ended. {interaction.user.mention}, your shift lasted `{await endShift(mod)}` hours!")
 
 
 @shift_group.command(name = "pause", description = "Pauses your shift, automatically stops it after 90 minutes")
@@ -113,9 +122,9 @@ async def pause(interaction: discord.Interaction):
     now = datetime.datetime.now().timestamp()
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
-        return await interaction.response.send_message(f"You have not started a shift!")
+        return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
     if data["current_times"][mod]["paused"]:
-        return await interaction.response.send_message(f"Shift already paused!")
+        return await interaction.response.send_message(f"Shift already paused!", ephemeral = True)
     data["current_times"][mod]["paused"] = True
     data["current_times"][mod]["pauses"].append(now)
     await handleFile("current_times", "write")
@@ -123,19 +132,13 @@ async def pause(interaction: discord.Interaction):
 
 @shift_group.command(name = "continue", description = "Continues your shift if it is paused")
 async def cont(interaction: discord.Interaction):
-    now = datetime.datetime.now().timestamp()
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
-        return await interaction.response.send_message(f"You have not started a shift!")
+        return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
     data["current_times"][mod]
     if not data["current_times"][mod]["paused"]:
-        return await interaction.response.send_message(f"Shift is not paused!")
-    data["current_times"][mod]["paused"] = False
-    last_entry = len(data["current_times"][mod]["pauses"]) - 1
-    data["current_times"][mod]["pauses"][last_entry] = (now - data["current_times"][mod]["pauses"][last_entry])
-    data["current_times"][mod]["status_check"]["next"] = (now + 1800)
-    await handleFile("current_times", "write")
-    await interaction.response.send_message("continued")
+        return await interaction.response.send_message(f"Shift is not paused!", ephemeral = True)
+    await interaction.response.send_message("Shift continued!")
 
 client.tree.add_command(shift_group, guild = GUILD)
 
