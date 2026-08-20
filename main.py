@@ -8,7 +8,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from discord.ui import Select, Button, View
 
-data = {"total_times": dict({}), "current_times": dict({}), "active_hours": dict({})}
+data = {"total_times": dict({}), "current_times": dict({}), "active_hours": dict({}), "config": dict({})}
 
 async def handleFile(name, method):
     if method == "read":
@@ -25,10 +25,9 @@ class Client(commands.Bot):
         status_check.start()
 
         try:
-            await handleFile("total_times", "read")
-            await handleFile("current_times", "read")
-            await handleFile("active_hours", "read")
-            print(f"Data read from files")
+            for key in data:
+                await handleFile(key, "read")
+                print(f"Read file {key}.json")
             pass
         except Exception as err:
             print(f"Error reading file data: {err}")
@@ -49,9 +48,20 @@ client = Client(command_prefix = "p!", intents = intents)
 
 shift_group = app_commands.Group(name = "shift", description = "Shift system")
 
+@shift_group.command(name = "setlogs", description = "Sets the log channel for all status updates")
+async def setlogs(interaction: discord.Interaction, channel: discord.TextChannel):
+    data["config"]["logs"] = channel.id
+    await handleFile("config", "write")
+    await interaction.response.send_message(f"Set the logs channel to {channel.mention}!")
+
+async def sendLog(msg):
+    channel = client.get_channel(data["config"]["logs"])
+    await channel.send(embed = msg)
+
+
 @shift_group.command(name = "start", description = "Set your status to currently moderating")
 async def start(interaction: discord.Interaction, dms: bool=False):
-    now = datetime.datetime.now().timestamp()
+    now = round(datetime.datetime.now().timestamp())
     details = {
         "start": now,
         "dms": False,
@@ -66,7 +76,7 @@ async def start(interaction: discord.Interaction, dms: bool=False):
         details["dms"] = True
     mod = str(interaction.user.id)
     if mod in data["current_times"]:
-        return await interaction.response.send_message(f"You already started a shift <t:{round(data["current_times"][mod]["start"])}:R> ago!", ephemeral = True)
+        return await interaction.response.send_message(f"You already started a shift <t:{data["current_times"][mod]["start"]}:R> ago!", ephemeral = True)
     data["current_times"][mod] = details
     await handleFile("current_times", "write")
     await interaction.response.send_message(f"{interaction.user.mention} has started a shift, check your DMs!")
@@ -78,18 +88,27 @@ async def start(interaction: discord.Interaction, dms: bool=False):
     startedEmbed.set_thumbnail(url = "https://cdn.discordapp.com/icons/1522861009386209320/a_d38d426dbc09afb9d94859870cf4cf47.webp?size=512&animated=true")
     await interaction.user.send(embed = startedEmbed)
 
-async def endShift(mod): # add deduction from pauses
-    end = datetime.datetime.now().timestamp()
+    startedLog = discord.Embed(
+        description = f"{interaction.user.mention} has started a shift.",
+        color = discord.Color.green(),
+        timestamp = now
+    )
+    await sendLog(startedLog)
+
+async def endShift(mod):
+    end = round(datetime.datetime.now().timestamp())
     user = client.get_user(int(mod))
     lastCheck = data["current_times"][mod]["status_check"]["msg"]
     if lastCheck > 0:
         check = await user.fetch_message(lastCheck)
-        await check.edit(content = f"<t:{round(end)}:R>\n> Status Check cancelled as the shift has ended.", embed = None, view = None)
+        await check.edit(content = f"<t:{end}:R>\n> Status Check cancelled as the shift has ended.", embed = None, view = None)
+    elif data["current_times"][mod]["paused"]:
+        await resumeShift(mod)
     start = data["current_times"][mod]["start"]
-    length = (end - start)
+    length = end - start
     for pause in data["current_times"][mod]["pauses"]:
         length -= pause
-    length_hours = round(length/3600, 1)
+    length_hours = length/3600
     data["current_times"].pop(mod, None)
     await handleFile("current_times", "write")
     if mod in data["total_times"]:
@@ -100,7 +119,7 @@ async def endShift(mod): # add deduction from pauses
     return length_hours
 
 async def resumeShift(mod):
-    now = datetime.datetime.now().timestamp()
+    now = round(datetime.datetime.now().timestamp())
     data["current_times"][mod]["paused"] = False
     last_entry = len(data["current_times"][mod]["pauses"]) - 1
     data["current_times"][mod]["pauses"][last_entry] = (now - data["current_times"][mod]["pauses"][last_entry])
@@ -112,23 +131,35 @@ async def end(interaction: discord.Interaction):
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
         return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
-    elif data["current_times"][mod]["paused"]:
-        await resumeShift(mod)
     await interaction.response.send_message(f"Shift ended. {interaction.user.mention}, your shift lasted `{await endShift(mod)}` hours!")
+    endedLog = discord.Embed(
+        description = f"{interaction.user.mention} has ended a shift.",
+        color = discord.Color.white()
+    )
+    await sendLog(endedLog)
+    
+
+async def pauseShift(mod):
+    now = round(datetime.datetime.now().timestamp())
+    data["current_times"][mod]["paused"] = True
+    data["current_times"][mod]["pauses"].append(now)
+    await handleFile("current_times", "write")
 
 
 @shift_group.command(name = "pause", description = "Pauses your shift, automatically stops it after 90 minutes")
 async def pause(interaction: discord.Interaction):
-    now = datetime.datetime.now().timestamp()
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
         return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
     if data["current_times"][mod]["paused"]:
         return await interaction.response.send_message(f"Shift already paused!", ephemeral = True)
-    data["current_times"][mod]["paused"] = True
-    data["current_times"][mod]["pauses"].append(now)
-    await handleFile("current_times", "write")
+    await pauseShift(mod)
     await interaction.response.send_message("Shift paused!")
+    pausedLog = discord.Embed(
+        description = f"{interaction.user.mention}'s shift has been paused.",
+        color = discord.Color.yellow()
+    )
+    await sendLog(pausedLog)
 
 @shift_group.command(name = "continue", description = "Continues your shift if it is paused")
 async def cont(interaction: discord.Interaction):
@@ -139,6 +170,11 @@ async def cont(interaction: discord.Interaction):
     if not data["current_times"][mod]["paused"]:
         return await interaction.response.send_message(f"Shift is not paused!", ephemeral = True)
     await interaction.response.send_message("Shift continued!")
+    resumeLog = discord.Embed(
+        description = f"{interaction.user.mention} has resumed a shift.",
+        color = discord.Color.blue()
+    )
+    await sendLog(resumeLog)
 
 client.tree.add_command(shift_group, guild = GUILD)
 
@@ -254,17 +290,20 @@ client.tree.add_command(help_group, guild = GUILD)
 async def status_check():
     tempdict = data["current_times"]
     for mod in tempdict:
-        now = datetime.datetime.now().timestamp()
+        now = round(datetime.datetime.now().timestamp())
         user = client.get_user(int(mod))
         if not data["current_times"][mod]["paused"]:
             if now > data["current_times"][mod]["status_check"]["next"]:
                 if now > (data["current_times"][mod]["status_check"]["next"] + 600): # 600
                     check = await user.fetch_message(data["current_times"][mod]["status_check"]["msg"])
-                    data["current_times"][mod]["paused"] = True
-                    data["current_times"][mod]["pauses"].append(now)
-                    await handleFile("current_times", "write")
+                    await pauseShift(mod)
                     await check.edit(view = None)
-                    return await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{round(now) + 5400}:R>.")
+                    await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{now + 5400}:R>.")
+                    forcePausedLog = discord.Embed(
+                        description = f"{user.mention}'s shift has been paused due to not responding to the status check.",
+                        color = discord.Color.orange()
+                    )
+                    return await sendLog(forcePausedLog)
                 elif data["current_times"][mod]["status_check"]["msg"] == 0:
                     checkEmbed = discord.Embed(
                         title = "Status Check",
@@ -276,17 +315,22 @@ async def status_check():
                         data["current_times"][mod]["status_check"]["msg"] = 0
                         data["current_times"][mod]["status_check"]["next"] = (now + 1800) # 1800
                         await handleFile("current_times", "write")
-                        return await interaction.response.edit_message(content = f"<t:{round(now)}:R>\nYou've confirmed your active status! Thank you for your service. :saluting_face:", embed = None, view = None)
+                        return await interaction.response.edit_message(content = f"<t:{now}:R>\nYou've confirmed your active status! Thank you for your service. :saluting_face:", embed = None, view = None)
                     button.callback = confirm
                     view = View()
                     view.add_item(button)
                     await handleFile("current_times", "write")
-                    msg = await user.send(f"<t:{round(now)}:R>", embed = checkEmbed, view = view)
+                    msg = await user.send(f"<t:{now}:R>", embed = checkEmbed, view = view)
                     data["current_times"][mod]["status_check"]["msg"] = msg.id
                     await handleFile("current_times", "write")
                     return
         elif now > (data["current_times"][mod]["pauses"][len(data["current_times"][mod]["pauses"]) - 1] + 5400): # 5400
-            return await user.send(f"Your shift has automatically ended due to being paused for over 90 minutes! It lasted for `{await endShift(mod)}` hours.")
+            await user.send(f"Your shift has automatically ended due to being paused for over 90 minutes! It lasted for `{await endShift(mod)}` hours.")
+            forceEndedLog = discord.Embed(
+                description = f"{user.mention}'s shift has ended after 90 minutes on pause.",
+                color = discord.Color.red()
+            )
+            return await sendLog(forceEndedLog)
 
 load_dotenv()
 client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
