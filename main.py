@@ -18,33 +18,45 @@ async def handleFile(name, method):
 
 GUILD = discord.Object(id = 1238093282852999229)
 
-class Client(commands.Bot):
-    async def on_ready(self):
-        print(f"Logged on as {self.user}!")
-
-        status_check.start()
-
-        try:
-            for key in data:
-                await handleFile(key, "read")
-                print(f"Read file {key}.json")
-            pass
-        except Exception as err:
-            print(f"Error reading file data: {err}")
-
-        try:
-            synced = await self.tree.sync(guild = GUILD)
-            print(f"Synced {len(synced)} commands to guild {GUILD.id}")
-
-        except Exception as err:
-            print(f"Error syncing commands: {err}")
-
 handler = logging.FileHandler(filename = "bot.log", encoding = "utf-8", mode = "w")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
-client = Client(command_prefix = "p!", intents = intents)
+client = commands.Bot(command_prefix = "p!", intents = intents)
+
+async def isOffline():
+    if len(data["current_times"]) > 0:
+        print(f"Bot offline! Saving shifts.")
+        tempdict = data["current_times"]
+        for mod in tempdict:
+            await endShift(mod)
+            print(f"Saved shift for {mod}")
+        return print(f"Shifts saved!")
+
+@client.event
+async def on_ready():
+    print(f"Logged on as {client.user}!")
+
+    try:
+        for key in data:
+            await handleFile(key, "read")
+            print(f"Read file {key}.json")
+        pass
+    except Exception as err:
+        print(f"Error reading file data: {err}")
+
+    try:
+        synced = await client.tree.sync(guild = GUILD)
+        print(f"Synced {len(synced)} commands to guild {GUILD.id}")
+
+    except Exception as err:
+        print(f"Error syncing commands: {err}")
+
+@client.event
+async def on_disconnect():
+    print("Client disconnected!")
+    await isOffline()
 
 shift_group = app_commands.Group(name = "shift", description = "Shift system")
 
@@ -58,7 +70,6 @@ async def sendLog(msg):
     channel = client.get_channel(data["config"]["logs"])
     await channel.send(embed = msg)
 
-
 @shift_group.command(name = "start", description = "Set your status to currently moderating")
 async def start(interaction: discord.Interaction, dms: bool=False):
     now = round(datetime.datetime.now().timestamp())
@@ -69,14 +80,14 @@ async def start(interaction: discord.Interaction, dms: bool=False):
         "pauses": [],
         "status_check": {
             "msg": 0,
-            "next": (now + 1800) # 1800
+            "next": (now + 1200) # 1200
         }
     }
     if dms:
         details["dms"] = True
     mod = str(interaction.user.id)
     if mod in data["current_times"]:
-        return await interaction.response.send_message(f"You already started a shift <t:{data["current_times"][mod]["start"]}:R> ago!", ephemeral = True)
+        return await interaction.response.send_message(f"You already started a shift <t:{data['current_times'][mod]['start']}:R> ago!", ephemeral = True)
     data["current_times"][mod] = details
     await handleFile("current_times", "write")
     await interaction.response.send_message(f"{interaction.user.mention} has started a shift, check your DMs!")
@@ -90,10 +101,17 @@ async def start(interaction: discord.Interaction, dms: bool=False):
 
     startedLog = discord.Embed(
         description = f"{interaction.user.mention} has started a shift.",
-        color = discord.Color.green(),
-        timestamp = now
+        color = discord.Color.green()
     )
     await sendLog(startedLog)
+
+async def resumeShift(mod):
+    now = round(datetime.datetime.now().timestamp())
+    data["current_times"][mod]["paused"] = False
+    last_entry = len(data["current_times"][mod]["pauses"]) - 1
+    data["current_times"][mod]["pauses"][last_entry] = (now - data["current_times"][mod]["pauses"][last_entry])
+    data["current_times"][mod]["status_check"]["next"] = (now + 1800)
+    await handleFile("current_times", "write")
 
 async def endShift(mod):
     end = round(datetime.datetime.now().timestamp())
@@ -108,7 +126,7 @@ async def endShift(mod):
     length = end - start
     for pause in data["current_times"][mod]["pauses"]:
         length -= pause
-    length_hours = length/3600
+    length_hours = round(length/3600, 2)
     data["current_times"].pop(mod, None)
     await handleFile("current_times", "write")
     if mod in data["total_times"]:
@@ -118,14 +136,6 @@ async def endShift(mod):
     await handleFile("total_times", "write")
     return length_hours
 
-async def resumeShift(mod):
-    now = round(datetime.datetime.now().timestamp())
-    data["current_times"][mod]["paused"] = False
-    last_entry = len(data["current_times"][mod]["pauses"]) - 1
-    data["current_times"][mod]["pauses"][last_entry] = (now - data["current_times"][mod]["pauses"][last_entry])
-    data["current_times"][mod]["status_check"]["next"] = (now + 1800)
-    await handleFile("current_times", "write")
-
 @shift_group.command(name = "end", description = "Ends your current moderating status")
 async def end(interaction: discord.Interaction):
     mod = str(interaction.user.id)
@@ -134,7 +144,7 @@ async def end(interaction: discord.Interaction):
     await interaction.response.send_message(f"Shift ended. {interaction.user.mention}, your shift lasted `{await endShift(mod)}` hours!")
     endedLog = discord.Embed(
         description = f"{interaction.user.mention} has ended a shift.",
-        color = discord.Color.white()
+        color = discord.Color.light_grey()
     )
     await sendLog(endedLog)
     
@@ -166,9 +176,9 @@ async def cont(interaction: discord.Interaction):
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
         return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
-    data["current_times"][mod]
     if not data["current_times"][mod]["paused"]:
         return await interaction.response.send_message(f"Shift is not paused!", ephemeral = True)
+    await resumeShift(mod)
     await interaction.response.send_message("Shift continued!")
     resumeLog = discord.Embed(
         description = f"{interaction.user.mention} has resumed a shift.",
@@ -286,7 +296,7 @@ async def onduty(interaction: discord.Interaction):
 
 client.tree.add_command(help_group, guild = GUILD)
 
-@tasks.loop(minutes = 1)
+@tasks.loop(seconds = 30)
 async def status_check():
     tempdict = data["current_times"]
     for mod in tempdict:
