@@ -8,7 +8,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from discord.ui import Select, Button, View
 
-data = {"total_times": dict({}), "current_times": dict({}), "active_hours": dict({}), "config": dict({}), "offline_save": dict({})}
+data = {"mod_data": dict({}), "current_times": dict({}), "active_hours": dict({}), "config": dict({}), "offline_save": dict({})}
 
 async def handleFile(name, method):
     if method == "read":
@@ -40,6 +40,15 @@ async def sendLog(msg):
     channel = client.get_channel(data["config"]["logs"])
     await channel.send(embed = msg)
 
+async def hasData(mod):
+    if mod in data["mod_data"]:
+        return
+    else:
+        data["mod_data"][mod] = {
+            "total_time": 0,
+            "time_offset": 0
+        }
+
 @client.event
 async def on_ready():
     print(f"Logged on as {client.user}!")
@@ -66,8 +75,10 @@ async def on_ready():
                 description = "The following are shifts that have been saved:"
             )
             for mod in data["offline_save"]:
+                user = client.get_user(int(mod))
                 preCrash.add_field(
-                    value = f"<@{mod}> - `{round(data['offline_save'][mod] / 3600, 2)}` hours.",
+                    name = f"{user.name}",
+                    value = f"{user.mention} - `{round(data['offline_save'][mod] / 3600, 2)}` hours.",
                     inline = False
                 )
                 data["offline_save"].pop(mod, None)
@@ -143,15 +154,13 @@ async def endShift(mod):
         await resumeShift(mod)
     start = data["current_times"][mod]["start"]
     length = end - start
+    await hasData(mod)
+    data["mod_data"][mod]["length"] = length
     for pause in data["current_times"][mod]["pauses"]:
         length -= pause
     data["current_times"].pop(mod, None)
     await handleFile("current_times", "write")
-    if mod in data["total_times"]:
-        data["total_times"][mod] += length
-    else:
-        data["total_times"][mod] = length
-    await handleFile("total_times", "write")
+    await handleFile("mod_data", "write")
     return length
 
 @shift_group.command(name = "end", description = "Ends your current moderating status")
@@ -205,12 +214,172 @@ async def cont(interaction: discord.Interaction):
     await sendLog(resumeLog)
 
 client.tree.add_command(shift_group, guild = GUILD)
-
 active_group = app_commands.Group(name = "active", description = "Active Hours tracker")
 
-@active_group.command(name = "set", description = "Set your active hours")
+@active_group.command(name = "settimezone", description = "Set your active hours")
+async def set(interaction: discord.Interaction):
+    mod = str(interaction.user.id)
+    zones1 = Select(options = [
+        discord.SelectOption(label = "UTC -12:00", value = "-1200", description = "US - Baker Island"),
+        discord.SelectOption(label = "UTC -11:00", value = "-1100", description = "NZ - Niue, US - American Samoa"),
+        discord.SelectOption(label = "UTC -10:00", value = "-1000", description = "US - Honolulu, Hawaii"),
+        discord.SelectOption(label = "UTC -09:30", value = "-930", description = "FR - Marquesas Islands"),
+        discord.SelectOption(label = "UTC -09:00", value = "-900", description = "US - Alaska"),
+        discord.SelectOption(label = "UTC -08:00", value = "-800", description = "US - Los Angeles, CA - Vancouver"),
+        discord.SelectOption(label = "UTC -07:00", value = "-700", description = "US - Denver, CA - Calgary"),
+        discord.SelectOption(label = "UTC -06:00", value = "-600", description = "MX - Mexico City, US - Chicago"),
+        discord.SelectOption(label = "UTC -05:00", value = "-500", description = "US - New York, CA - Toronto"),
+        discord.SelectOption(label = "UTC -04:00", value = "-400", description = "CL - Santiago, DO - Santo Domingo"),
+        discord.SelectOption(label = "UTC -03:30", value = "-330", description = "CA - St. John's"),
+        discord.SelectOption(label = "UTC -03:00", value = "-300", description = "BR - São Paulo, AR - Buenos Aires"),
+        discord.SelectOption(label = "UTC -02:00", value = "-200", description = "DK - Greenland"),
+        discord.SelectOption(label = "UTC -01:00", value = "-100", description = "Cape Verde"),
+        discord.SelectOption(label = "Not Listed", value = "notlisted1", description = "For UTC +0 to +14")
+    ])
+    zones2 = Select(options = [
+        discord.SelectOption(label = "UTC +00:00", value = "0", description = "GB - London, IE - Dublin"),
+        discord.SelectOption(label = "UTC +01:00", value = "+100", description = "FR - Paris, DE - Berlin"),
+        discord.SelectOption(label = "UTC +02:00", value = "+200", description = "GR - Athens, RO - Bucharest"),
+        discord.SelectOption(label = "UTC +03:00", value = "+300", description = "RU - Moscow, TR - Istanbul"),
+        discord.SelectOption(label = "UTC +03:30", value = "+330", description = "IR - Tehran"),
+        discord.SelectOption(label = "UTC +04:00", value = "+400", description = "AE - Dubai, GE - Tbilisi"),
+        discord.SelectOption(label = "UTC +04:30", value = "+430", description = "AF - Kabul"),
+        discord.SelectOption(label = "UTC +05:00", value = "+500", description = "PK - Karachi, KZ - Astana"),
+        discord.SelectOption(label = "UTC +05:30", value = "+530", description = "IN - Delhi, LK - Colombo"),
+        discord.SelectOption(label = "UTC +05:45", value = "+545", description = "NP - Kathmandu"),
+        discord.SelectOption(label = "UTC +06:00", value = "+600", description = "BD - Dhaka, KG - Bishkek"),
+        discord.SelectOption(label = "UTC +06:30", value = "+630", description = "MM - Yangon"),
+        discord.SelectOption(label = "UTC +07:00", value = "+700", description = "TH - Bangkok, ID - Jakarta"),
+        discord.SelectOption(label = "UTC +08:00", value = "+800", description = "🔥🔥 UY PILIPINS !!!"),
+        discord.SelectOption(label = "UTC +08:45", value = "+845", description = "AU - Eucla"),
+        discord.SelectOption(label = "UTC +09:00", value = "+900", description = "JP - Tokyo, KR - Seoul"),
+        discord.SelectOption(label = "UTC +09:30", value = "+930", description = "AU - Adelaide"),
+        discord.SelectOption(label = "UTC +10:00", value = "+1000", description = "AU - Melbourne, PG - Port Moresby"),
+        discord.SelectOption(label = "UTC +10:30", value = "+1030", description = "AU - Lord Howe Island"),
+        discord.SelectOption(label = "UTC +11:00", value = "+1100", description = "FR - Nouméa"),
+        discord.SelectOption(label = "UTC +12:00", value = "+1200", description = "NZ - Auckland, FJ - Suva"),
+        discord.SelectOption(label = "UTC +12:45", value = "+1245", description = "NZ - Chatham Islands"),
+        discord.SelectOption(label = "UTC +13:00", value = "+1300", description = "KI - Phoenix Islands, Samoa"),
+        discord.SelectOption(label = "UTC +14:00", value = "+1400", description = "KI - Line Islands"),
+        discord.SelectOption(label = "Not Listed", value = "notlisted2", description = "For UTC -12 to -1")
+    ])
+    async def setzone1(interaction):
+        if zones1.values[0] == "notlisted1":
+            setZone.remove_item(zones1)
+            setZone.add_item(zones2)
+            return await interaction.response.edit_message(view = setZone)
+        await hasData(mod)
+        data["mod_data"][mod]["time_offset"] = int(zones1.values[0])
+        await handleFile("mod_data", "write")
+        return await interaction.response.edit_message(content = f"You have selected {zones1.values[0]}", view = None)
+    async def setzone2(interaction):
+        if zones2.values[0] == "notlisted2":
+            setZone.remove_item(zones2)
+            setZone.add_item(zones1)
+            return await interaction.response.edit_message(view = setZone)
+        await hasData(mod)
+        data["mod_data"][mod]["time_offset"] = int(zones2.values[0])
+        await handleFile("mod_data", "write")
+        return await interaction.response.edit_message(content = f"You have selected {zones2.values[0]}", view = None)
+    zones1.callback = setzone1
+    zones2.callback = setzone2
+    setZone = View()
+    setZone.add_item(zones1)
+    await interaction.response.send_message(content = f"Please select your Timezone in UTC:", view = setZone)
+
+    # setHours = Button(label = "Set Hours", style = discord.ButtonStyle.green)
+    # async def hours(interaction):
+    #     days = Select(min_values = 1, max_values = 7, options = [
+    #         discord.SelectOption(label = "Monday"),
+    #         discord.SelectOption(label = "Tuesday"),
+    #         discord.SelectOption(label = "Wednesday"),
+    #         discord.SelectOption(label = "Thursday"),
+    #         discord.SelectOption(label = "Friday"),
+    #         discord.SelectOption(label = "Saturday"),
+    #         discord.SelectOption(label = "Sunday")
+    #     ])
+        # async def setdays(interaction):
+        #     hours = Select(min_values = 0, max_values = 48, options = [
+        #         discord.SelectOption(label = "12:00AM - 12:30AM", value = "0000"),
+        #         discord.SelectOption(label = "12:30AM - 01:00AM", value = "0030"),
+        #         discord.SelectOption(label = "01:00AM - 01:30AM", value = "0100"),
+        #         discord.SelectOption(label = "01:30AM - 02:00AM", value = "0130"),
+        #         discord.SelectOption(label = "02:00AM - 02:30AM", value = "0200"),
+        #         discord.SelectOption(label = "02:30AM - 03:00AM", value = "0230"),
+        #         discord.SelectOption(label = "03:00AM - 03:30AM", value = "0300"),
+        #         discord.SelectOption(label = "03:30AM - 04:00AM", value = "0330"),
+        #         discord.SelectOption(label = "04:00AM - 04:30AM", value = "0400"),
+        #         discord.SelectOption(label = "04:30AM - 05:00AM", value = "0430"),
+        #         discord.SelectOption(label = "05:00AM - 05:30AM", value = "0500"),
+        #         discord.SelectOption(label = "05:30AM - 06:00AM", value = "0530"),
+        #         discord.SelectOption(label = "06:00AM - 06:30AM", value = "0600"),
+        #         discord.SelectOption(label = "06:30AM - 07:00AM", value = "0630"),
+        #         discord.SelectOption(label = "07:00AM - 07:30AM", value = "0700"),
+        #         discord.SelectOption(label = "07:30AM - 08:00AM", value = "0730"),
+        #         discord.SelectOption(label = "08:00AM - 08:30AM", value = "0800"),
+        #         discord.SelectOption(label = "08:30AM - 09:00AM", value = "0830"),
+        #         discord.SelectOption(label = "09:00AM - 09:30AM", value = "0900"),
+        #         discord.SelectOption(label = "09:30AM - 10:00AM", value = "0930"),
+        #         discord.SelectOption(label = "10:00AM - 10:30AM", value = "1000"),
+        #         discord.SelectOption(label = "10:30AM - 11:00AM", value = "1030"),
+        #         discord.SelectOption(label = "11:00AM - 11:30AM", value = "1100"),
+        #         discord.SelectOption(label = "11:30AM - 12:00PM", value = "1130"),
+        #         discord.SelectOption(label = "12:00PM - 12:30PM", value = "1200"),
+        #         discord.SelectOption(label = "12:30PM - 01:00PM", value = "1230"),
+        #         discord.SelectOption(label = "01:00PM - 01:30PM", value = "1300"),
+        #         discord.SelectOption(label = "01:30PM - 02:00PM", value = "1330"),
+        #         discord.SelectOption(label = "02:00PM - 02:30PM", value = "1400"),
+        #         discord.SelectOption(label = "02:30PM - 03:00PM", value = "1430"),
+        #         discord.SelectOption(label = "03:00PM - 03:30PM", value = "1500"),
+        #         discord.SelectOption(label = "03:30PM - 04:00PM", value = "1530"),
+        #         discord.SelectOption(label = "04:00PM - 04:30PM", value = "1600"),
+        #         discord.SelectOption(label = "04:30PM - 05:00PM", value = "1630"),
+        #         discord.SelectOption(label = "05:00PM - 05:30PM", value = "1700"),
+        #         discord.SelectOption(label = "05:30PM - 06:00PM", value = "1730"),
+        #         discord.SelectOption(label = "06:00PM - 06:30PM", value = "1800"),
+        #         discord.SelectOption(label = "06:30PM - 07:00PM", value = "1830"),
+        #         discord.SelectOption(label = "07:00PM - 07:30PM", value = "1900"),
+        #         discord.SelectOption(label = "07:30PM - 08:00PM", value = "1930"),
+        #         discord.SelectOption(label = "08:00PM - 08:30PM", value = "2000"),
+        #         discord.SelectOption(label = "08:30PM - 09:00PM", value = "2030"),
+        #         discord.SelectOption(label = "09:00PM - 09:30PM", value = "2100"),
+        #         discord.SelectOption(label = "09:30PM - 10:00PM", value = "2130"),
+        #         discord.SelectOption(label = "10:00PM - 10:30PM", value = "2200"),
+        #         discord.SelectOption(label = "10:30PM - 11:00PM", value = "2230"),
+        #         discord.SelectOption(label = "11:00PM - 11:30PM", value = "2300"),
+        #         discord.SelectOption(label = "11:30PM - 12:00AM", value = "2330")
+        #     ])
+        #     for day in days.values:
+        #         async def done(interaction):
+        #             yourHours = ""
+        #             for hour in hours.values:
+        #                 yourHours += f"\n`{hour}`"
+        #                 data["active_hours"][day.lower()][hour].append(mod)
+        #             await interaction.response.send_message(content = f"Your available hours for `{day}`:{yourHours}", ephemeral = True)
+        #         hours.callback = done
+        #         hoursView.remove_item(days)
+        #         hoursView.remove_item(back)
+        #         hoursView.add_item(hours)
+        #         await interaction.response.send_message(content = f"Available hours for `{day}`:", view = hoursView, ephemeral = True)
+        # days.callback = setdays
+        # hoursView = View()
+        # hoursView.add_item(days)
+        # hoursView.add_item(back)
+        # await interaction.response.send_message(content = f"Please select the days you are active:", view = hoursView, ephemeral = True)
+
+@active_group.command(name = "view", description = "View your active hours")
 async def set(interaction: discord.Interaction):
     return
+
+@active_group.command(name = "disable", description = "Temporarily disables your active hours")
+async def set(interaction: discord.Interaction):
+    return
+
+@active_group.command(name = "enable", description = "Re-enables your active hours")
+async def set(interaction: discord.Interaction):
+    return
+
+client.tree.add_command(active_group, guild = GUILD)
 
 help_group = app_commands.Group(name = "help", description = "Information on the bot and its commands")
 
