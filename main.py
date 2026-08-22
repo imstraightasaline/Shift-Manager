@@ -3,6 +3,7 @@ import logging
 import os
 import json
 import datetime
+import math
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -217,13 +218,51 @@ async def cont(interaction: discord.Interaction):
 client.tree.add_command(shift_group, guild = GUILD)
 active_group = app_commands.Group(name = "active", description = "Active Hours tracker")
 
+def convertZone(text):
+    return int(text.replace(':', '')) / 100
+
+zones = ["-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00", "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:00", "-01:00", "+00:00", "+01:00", "+02:00", "+03:00", "+03:30", "+04:00", "+04:30", "+05:00", "+05:30", "+05:45", "+06:00", "+06:30", "+07:00", "+08:00", "+08:45", "+09:00", "+09:30", "+10:00", "+10:30", "+11:00", "+12:00", "+12:45", "+13:00", "+14:00"]
+days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+hours = {"12:00am": "0000", "12:15am": "0015", "12:30am": "0030", "12:45am": "0045", "01:00am": "0100", "01:15am": "0115", "01:30am": "0130", "01:45am": "0145", "02:00am": "0200", "02:15am": "0215", "02:30am": "0230", "02:45am": "0245", "03:00am": "0300", "03:15am": "0315", "03:30am": "0330", "03:45am": "0345", "04:00am": "0400", "04:15am": "0415", "04:30am": "0430", "04:45am": "0445", "05:00am": "0500", "05:15am": "0515", "05:30am": "0530", "05:45am": "0545", "06:00am": "0600", "06:15am": "0615", "06:30am": "0630", "06:45am": "0645", "07:00am": "0700", "07:15am": "0715", "07:30am": "0730", "07:45am": "0745", "08:00am": "0800", "08:15am": "0815", "08:30am": "0830", "08:45am": "0845", "09:00am": "0900", "09:15am": "0915", "09:30am": "0930", "09:45am": "0945", "10:00am": "1000", "10:15am": "1015", "10:30am": "1030", "10:45am": "1045", "11:00am": "1100", "11:15am": "1115", "11:30am": "1130", "11:45am": "1145", "12:00pm": "1200", "12:15pm": "1215", "12:30pm": "1230", "12:45pm": "1245", "01:00pm": "1300", "01:15pm": "1315", "01:30pm": "1330", "01:45pm": "1345", "02:00pm": "1400", "02:15pm": "1415", "02:30pm": "1430", "02:45pm": "1445", "03:00pm": "1500", "03:15pm": "1515", "03:30pm": "1530", "03:45pm": "1545", "04:00pm": "1600", "04:15pm": "1615", "04:30pm": "1630", "04:45pm": "1645", "05:00pm": "1700", "05:15pm": "1715", "05:30pm": "1730", "05:45pm": "1745", "06:00pm": "1800", "06:15pm": "1815", "06:30pm": "1830", "06:45pm": "1845", "07:00pm": "1900", "07:15pm": "1915", "07:30pm": "1930", "07:45pm": "1945", "08:00pm": "2000", "08:15pm": "2015", "08:30pm": "2030", "08:45pm": "2045", "09:00pm": "2100", "09:15pm": "2115", "09:30pm": "2130", "09:45pm": "2145", "10:00pm": "2200", "10:15pm": "2215", "10:30pm": "2230", "10:45pm": "2245", "11:00pm": "2300", "11:15pm": "2315", "11:30pm": "2330", "11:45pm": "2345", "11:59pm": "2400"}
+
+def convertTime(time, offset, day):
+    offset = offset - 8
+    time = convertZone(time)
+    min, hour = math.modf(time)
+    offmin, offhour = math.modf(offset)
+    min = round(min * 100)
+    offmin = round(offmin * 100)
+    finalmin = (min + offmin)/60
+    finalhour = hour + offhour
+    def changeDay(day, change):
+        index = days.index(day) + change
+        if index < 0:
+            day = "sunday"
+        elif index > 6:
+            day = "monday"
+        else:
+            day = days[index]
+    min, hour = math.modf(finalmin)
+    finalmin = min * 6
+    finalhour += hour
+    if finalhour < 0:
+        finalhour = 24 - finalhour
+        changeDay(day, -1)
+    elif finalhour > 24:
+        finalhour = finalhour - 24
+        changeDay(day, 1)
+    finalmin = str(finalmin).replace('.', '')
+    finalhour = str(int(finalhour))
+    if len(finalhour) < 2:
+        finalhour = "0" + finalhour
+    time = finalhour + finalmin
+    return time, day
+
 @active_group.command(name = "set", description = "Set your active hours")
 async def setzone(interaction: discord.Interaction):
     mod = str(interaction.user.id)
-    zones = ["-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00", "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:00", "-01:00", "+00:00", "+01:00", "+02:00", "+03:00", "+03:30", "+04:00", "+04:30", "+05:00", "+05:30", "+05:45", "+06:00", "+06:30", "+07:00", "+08:00", "+08:45", "+09:00", "+09:30", "+10:00", "+10:30", "+11:00", "+12:00", "+12:45", "+13:00", "+14:00"]
     await interaction.response.send_message("Setup started! Please follow the instructions and examples exactly as presented.", ephemeral = True)
     channel = interaction.channel
-    msg = discord.Message
     def checkauth(m):
         return m.author == interaction.user
     async def startsetup():
@@ -231,7 +270,8 @@ async def setzone(interaction: discord.Interaction):
         msg = await client.wait_for("message", timeout = 60, check = checkauth)
         await hasData(mod)
         if not msg.content == "skip":
-            data["mod_data"][mod]["time_offset"] = msg.content
+            timezone = convertZone(msg.content)
+            data["mod_data"][mod]["time_offset"] = timezone
             await handleFile("mod_data", "write")
         elif msg.content == "cancel":
             return channel.send("Active hours setup cancelled!")
@@ -240,15 +280,13 @@ async def setzone(interaction: discord.Interaction):
             return await startsetup()
         else:
             pass
-        return msg
     await startsetup()
-    days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     yourDays = []
     async def setdays():
-        await channel.send(f"Set your timezone to `UTC {msg.content}`!\nPlease input the days you are active. Example:\n```Monday, Friday, Saturday, Sunday```")
+        await channel.send(f"Please input the days you are active. Example:\n```Monday, Friday, Saturday, Sunday```")
         msg = await client.wait_for("message", timeout = 300, check = checkauth)
         if msg.content == "cancel":
-            return channel.send("Active hours setup cancelled!")
+            return await channel.send("Active Hours setup cancelled!")
         else:
             tempDays = [day.strip() for day in str(msg.content).lower().split(',')]
             for aDay in tempDays:
@@ -257,26 +295,69 @@ async def setzone(interaction: discord.Interaction):
                 else:
                     await channel.send(f"{aDay} is an invalid day! Please try again.")
                     return await setdays()
-        return msg
     await setdays()
+    offset = data["mod_data"][mod]["time_offset"]
     for day in yourDays:
-        await channel.send(f"Please input your active times for `{day}`! Example:\n```12:00PM - 04:00PM, 06:00PM - 09:00PM```")
+        await channel.send(f"Please input your active times for `{day}` in your timezone! Example:\n```12:00PM - 04:00PM, 06:00PM - 09:00PM```")
         msg = await client.wait_for("message", timeout = 300, check = checkauth)
-        hours = {"12:00AM": "0000", "12:15AM": "0015", "12:30AM": "0030", "12:45AM": "0045", "01:00AM": "0100", "01:15AM": "0115", "01:30AM": "0130", "01:45AM": "0145", "02:00AM": "0200", "02:15AM": "0215", "02:30AM": "0230", "02:45AM": "0245", "03:00AM": "0300", "03:15AM": "0315", "03:30AM": "0330", "03:45AM": "0345", "04:00AM": "0400", "04:15AM": "0415", "04:30AM": "0430", "04:45AM": "0445", "05:00AM": "0500", "05:15AM": "0515", "05:30AM": "0530", "05:45AM": "0545", "06:00AM": "0600", "06:15AM": "0615", "06:30AM": "0630", "06:45AM": "0645", "07:00AM": "0700", "07:15AM": "0715", "07:30AM": "0730", "07:45AM": "0745", "08:00AM": "0800", "08:15AM": "0815", "08:30AM": "0830", "08:45AM": "0845", "09:00AM": "0900", "09:15AM": "0915", "09:30AM": "0930", "09:45AM": "0945", "10:00AM": "1000", "10:15AM": "1015", "10:30AM": "1030", "10:45AM": "1045", "11:00AM": "1100", "11:15AM": "1115", "11:30AM": "1130", "11:45AM": "1145", "12:00PM": "1200", "12:15PM": "1215", "12:30PM": "1230", "12:45PM": "1245", "01:00PM": "1300", "01:15PM": "1315", "01:30PM": "1330", "01:45PM": "1345", "02:00PM": "1400", "02:15PM": "1415", "02:30PM": "1430", "02:45PM": "1445", "03:00PM": "1500", "03:15PM": "1515", "03:30PM": "1530", "03:45PM": "1545", "04:00PM": "1600", "04:15PM": "1615", "04:30PM": "1630", "04:45PM": "1645", "05:00PM": "1700", "05:15PM": "1715", "05:30PM": "1730", "05:45PM": "1745", "06:00PM": "1800", "06:15PM": "1815", "06:30PM": "1830", "06:45PM": "1845", "07:00PM": "1900", "07:15PM": "1915", "07:30PM": "1930", "07:45PM": "1945", "08:00PM": "2000", "08:15PM": "2015", "08:30PM": "2030", "08:45PM": "2045", "09:00PM": "2100", "09:15PM": "2115", "09:30PM": "2130", "09:45PM": "2145", "10:00PM": "2200", "10:15PM": "2215", "10:30PM": "2230", "10:45PM": "2245", "11:00PM": "2300", "11:15PM": "2315", "11:30PM": "2330", "11:45PM": "2345", "11:59PM": "2400"}
-        time = [day.strip() for day in str(msg).lower().split(',')]
+        if msg.content == "cancel":
+            return await channel.send("Active Hours setup cancelled!")
+        time = [day.strip() for day in str(msg.content).lower().split(',')]
+        editmsg = f"Your Active Hours for `{day}`:\n"
+        toedit = await channel.send(content = editmsg)
         for span in time:
-            return await channel.send(f"span")
+            split = [mark.strip() for mark in span.split('-')]
+            start = split[0]
+            middle = False
+            end = split[1]
+            for hour in hours:
+                if hour == start:
+                    middle = True
+                    pass
+                elif middle == False:
+                    continue
+                elif hour == end:
+                    middle = False
+                    editmsg += f"`{span}`\n"
+                    await toedit.edit(content = editmsg)
+                    break
+                time, newDay = convertTime(hours[hour], offset, day)
+                if mod in data["active_hours"][newDay][time]:
+                    continue
+                data["active_hours"][newDay][time].append(mod)
+                await handleFile("active_hours", "write")
+    await channel.send(f"You've succesfully set up your Active Hours!")
 
 @active_group.command(name = "view", description = "View your active hours")
-async def set(interaction: discord.Interaction):
+async def view(interaction: discord.Interaction):
     return
 
+@active_group.command(name = "change", description = "Change your active hours")
+async def modify(interaction: discord.Interaction):
+    return
+
+@active_group.command(name = "clear", description = "Clears all your active hours")
+async def clear(interaction: discord.Interaction):
+    mod = str(interaction.user.id)
+    await interaction.response.send_message("ARE YOU SURE cus like this will delete ALL your active hours (believe me it takes a WHILE), you could `/active disable` instead maybe..\nInput `YES/NO`")
+    def checkauth(m):
+        return m.author == interaction.user
+    msg = await client.wait_for("message", timeout = 300, check = checkauth)
+    if msg == "YES":
+        await interaction.followup("Buhbye hours 👋👋")
+        for day in data["active_hours"]:
+            for hour in data["active_hours"][day]:
+                data["active_hours"][day].pop(mod, None)
+        await interaction.followup("Done deleted em all")
+    elif msg == "NO":
+        await interaction.followup("Ok guess not 🤷‍♀️😋")
+
 @active_group.command(name = "disable", description = "Temporarily disables your active hours")
-async def set(interaction: discord.Interaction):
+async def disable(interaction: discord.Interaction):
     return
 
 @active_group.command(name = "enable", description = "Re-enables your active hours")
-async def set(interaction: discord.Interaction):
+async def enable(interaction: discord.Interaction):
     return
 
 client.tree.add_command(active_group, guild = GUILD)
