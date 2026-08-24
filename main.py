@@ -48,7 +48,18 @@ async def hasData(mod):
         data["mod_data"][mod] = {
             "total_time": 0,
             "time_offset": 0,
-            "active": True
+            "hours": {
+                "active": True,
+                "times": {
+                    "monday": [],
+                    "tuesday": [],
+                    "wednesday": [],
+                    "thursday": [],
+                    "friday": [],
+                    "saturday": [],
+                    "sunday": []
+                }
+            }
         }
 
 @client.event
@@ -306,6 +317,8 @@ async def setzone(interaction: discord.Interaction):
         editmsg = f"Your Active Hours for `{day}`:\n"
         toedit = await channel.send(content = editmsg)
         for span in time:
+            if span not in data["mod_data"][mod]["hours"]["times"][day]:
+                data["mod_data"][mod]["hours"]["times"][day].append(span)
             split = [mark.strip() for mark in span.split('-')]
             start = split[0]
             middle = False
@@ -325,29 +338,49 @@ async def setzone(interaction: discord.Interaction):
                 if mod in data["active_hours"][newDay][time]:
                     continue
                 data["active_hours"][newDay][time].append(mod)
-                await handleFile("active_hours", "write")
-    await channel.send(f"You've succesfully set up your Active Hours!")
+            await handleFile("active_hours", "write")
+    return await channel.send(f"You've succesfully set up your Active Hours!")
 
 @active_group.command(name = "view", description = "View your active hours")
 async def view(interaction: discord.Interaction):
-    return
+    mod = str(interaction.user.id)
+    viewmsg = f"Your active dates and times:\n"
+    for day in data["mod_data"][mod]["hours"]["times"]:
+        if len(day) > 0:
+            viewmsg += f"{day}:\n"
+            for span in day:
+                viewmsg += f"`{span}`\n"
+        else:
+            pass
+    return await interaction.response.send_message(content = viewmsg)
 
 @active_group.command(name = "change", description = "Change your active hours")
 async def modify(interaction: discord.Interaction):
-    return
+    mod = str(interaction.user.id)
+    await interaction.response.send_message("Would you like to `ADD/REMOVE` active hours?")
+    def checkauth(m):
+        return m.author == interaction.user
+    msg = await client.wait_for("message", timeout = 60, check = checkauth)
+    if msg == "ADD":
+        return
+    elif msg == "REMOVE":
+        return
 
 @active_group.command(name = "clear", description = "Clears all your active hours")
 async def clear(interaction: discord.Interaction):
     mod = str(interaction.user.id)
-    await interaction.response.send_message("ARE YOU SURE cus like this will delete ALL your active hours (believe me it takes a WHILE), you could `/active disable` instead maybe..\nInput `YES/NO`")
+    await interaction.response.send_message("ARE YOU SURE cus like this will delete ALL your active hours (it takes a while), you could `/active disable` instead maybe..\nInput `YES/NO`")
     def checkauth(m):
         return m.author == interaction.user
-    msg = await client.wait_for("message", timeout = 300, check = checkauth)
+    msg = await client.wait_for("message", timeout = 60, check = checkauth)
     if msg == "YES":
         await interaction.followup("Buhbye hours 👋👋")
         for day in data["active_hours"]:
             for hour in data["active_hours"][day]:
-                data["active_hours"][day].pop(mod, None)
+                data["active_hours"][day][hour].pop(mod, None)
+        data["mod_data"][mod]["hours"]["active"] = True
+        await handleFile["active_hours", "write"]
+        await handleFile["mod_data", "write"]
         await interaction.followup("Done deleted em all")
     elif msg == "NO":
         await interaction.followup("Ok guess not 🤷‍♀️😋")
