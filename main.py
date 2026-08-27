@@ -3,13 +3,14 @@ import logging
 import os
 import json
 import datetime
+import time
 import math
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
 from discord import app_commands
 from discord.ui import Button, View
 
-data = {"mod_data": dict({}), "current_times": dict({}), "active_hours": dict({}), "config": dict({}), "offline_save": dict({})}
+data = {"mod_data": dict({}), "current_times": dict({}), "active_hours": dict({}), "config": dict({})}
 
 async def handleFile(name, method):
     if method == "read":
@@ -17,7 +18,9 @@ async def handleFile(name, method):
     else:
         with open("./data/" + name + ".json", "w", encoding = "utf-8") as f: json.dump(data[name], f, ensure_ascii = False, indent = 4)
 
-GUILD = discord.Object(id = 1238093282852999229)
+GUILD = discord.Object(id = 1540941103891619972)
+
+reconnectAttempts = 0
 
 handler = logging.FileHandler(filename = "bot.log", encoding = "utf-8", mode = "w")
 intents = discord.Intents.default()
@@ -29,19 +32,17 @@ client = commands.Bot(command_prefix = "p!", intents = intents)
 async def isOffline():
     if len(data["current_times"]) > 0:
         print(f"Bot offline! Saving shifts.")
-        tempdict = data["current_times"]
-        for mod in tempdict:
-            end = await endShift(mod)
-            print(f"Saved shift for {mod}")
-            data["offline_save"][mod] = end
-            await handleFile("offline_save", "write")
+        for mod in data["current_times"]:
+            await pauseShift(mod)
+        data["config"]["reconnected"] = True
+        await handleFile("config", "write")
         return print(f"Shifts saved!")
 
-async def sendLog(msg):
+async def sendLog(toEmbed, msgContent = ""):
     if data["config"]["logs"] == 0:
         return
     channel = client.get_channel(data["config"]["logs"])
-    await channel.send(embed = msg)
+    await channel.send(embed = toEmbed, content = msgContent)
 
 async def hasData(mod):
     if mod in data["mod_data"]:
@@ -53,13 +54,13 @@ async def hasData(mod):
             "hours": {
                 "active": True,
                 "times": {
-                    "monday": [],
-                    "tuesday": [],
-                    "wednesday": [],
-                    "thursday": [],
-                    "friday": [],
-                    "saturday": [],
-                    "sunday": []
+                    "monday": {},
+                    "tuesday": {},
+                    "wednesday": {},
+                    "thursday": {},
+                    "friday": {},
+                    "saturday": {},
+                    "sunday": {}
                 }
             }
         }
@@ -69,6 +70,8 @@ async def on_ready():
     print(f"Logged on as {client.user}!")
     status_check.start()
     onduty_check.start()
+    global reconnectAttempts
+    reconnectAttempts = 0
 
     try:
         for key in data:
@@ -86,30 +89,34 @@ async def on_ready():
         print(f"Error syncing commands: {err}")
 
     try:
-        if len(data["offline_save"]) > 0:
+        if data["config"]["reconnected"]:
+            data["config"]["reconnected"] = False
+            await handleFile("config", "write")
             preCrash = discord.Embed(
                 title = "Bot lost connection!",
-                description = "The following are shifts that have been saved:"
+                description = "If you were mentioned here, your shift has been paused due to the bot losing internet connection.\nPlease unpause your shift with `/shift continue`."
             )
-            for mod in data["offline_save"]:
+            toPing = f""
+            for mod in data["current_times"]:
                 user = client.get_user(int(mod))
-                preCrash.add_field(
-                    name = f"{user.name}",
-                    value = f"{user.mention} - `{round(data['offline_save'][mod] / 3600, 2)}` hours.",
-                    inline = False
-                )
-                data["offline_save"].pop(mod, None)
-            await handleFile("offline_save", "write")
-            await sendLog(preCrash)
+                toPing += f"{user.mention} "
+            await sendLog(preCrash, toPing)
     except Exception as err:
         print(f"Error sending disconnection report: {err}")
 
 @client.event
 async def on_disconnect():
-    print("Client disconnected!")
-    await isOffline()
+    global reconnectAttempts
+    if reconnectAttempts == 0:
+        print("Client disconnected!")
+        status_check.stop()
+        onduty_check.stop()
+    reconnectAttempts += 1
+    print(f"Reconnect attempt: {reconnectAttempts}")
+    if reconnectAttempts == 8: # 8
+        await isOffline()
 
-shift_group = app_commands.Group(name = "shift", description = "Shift system", default_permissions = discord.Permissions(manage_messages = True))
+shift_group = app_commands.Group(name = "shift", description = "Shift system", default_permissions = discord.Permissions(send_messages = True)) # manage_messages
 
 @shift_group.command(name = "start", description = "Set your status to currently moderating")
 async def start(interaction: discord.Interaction, dms: bool=False):
@@ -179,9 +186,12 @@ async def end(interaction: discord.Interaction):
     mod = str(interaction.user.id)
     if not mod in data["current_times"]:
         return await interaction.response.send_message(f"You have not started a shift!", ephemeral = True)
-    await interaction.response.send_message(f"Shift ended. {interaction.user.mention}, your shift lasted `{round(await endShift(mod)/3600, 2)}` hours!")
+    totaltime = await endShift(mod)
+    totalhours = time.strftime("%H", time.gmtime(totaltime))
+    totalmins = time.strftime("%M", time.gmtime(totaltime))
+    await interaction.response.send_message(f"Shift ended. {interaction.user.mention}, your shift lasted `{totalhours}` hours and `{totalmins}` minutes!")
     endedLog = discord.Embed(
-        description = f"{interaction.user.mention} has ended a shift.",
+        description = f"{interaction.user.mention} has ended a shift.\nLength: `{totalhours}`h `{totalmins}`m",
         color = discord.Color.light_grey()
     )
     return await sendLog(endedLog)
@@ -191,7 +201,6 @@ async def pauseShift(mod):
     data["current_times"][mod]["paused"] = True
     data["current_times"][mod]["pauses"].append(now)
     await handleFile("current_times", "write")
-
 
 @shift_group.command(name = "pause", description = "Pauses your shift, automatically stops it after 90 minutes")
 async def pause(interaction: discord.Interaction):
@@ -224,7 +233,7 @@ async def cont(interaction: discord.Interaction):
     return await sendLog(resumeLog)
 
 client.tree.add_command(shift_group, guild = GUILD)
-active_group = app_commands.Group(name = "active", description = "Active Hours tracker", default_permissions = discord.Permissions(manage_messages = True))
+active_group = app_commands.Group(name = "active", description = "Active Hours tracker", default_permissions = discord.Permissions(send_messages = True)) # manage_messages
 
 def convertZone(text):
     return int(text.replace(':', '')) / 100
@@ -268,8 +277,8 @@ def convertTime(time, offset, day):
 
 async def setDays(interaction, yourDays):
     def checkauth(m):
-        return m.author == interaction.user
-    channel = interaction.channel
+        return m.guild == None and m.author == interaction.user
+    channel = interaction.user
     toSend = f""
     toSend = f"Please input the days you are active. Example:\n```Monday, Friday, Saturday, Sunday```"
     await channel.send(content = toSend)
@@ -297,53 +306,53 @@ def removeHours(mod, day):
 
 async def setHours(mod, interaction, yourDays):
     def checkauth(m):
-        return m.author == interaction.user
-    channel = interaction.channel
+        return m.guild == None and m.author == interaction.user and m.author == interaction.user
+    channel = interaction.user
     offset = data["mod_data"][mod]["time_offset"]
     for day in yourDays:
         removeHours(mod, day)
-        await channel.send(f"Please input your active times for `{day}` in your timezone! Example:\n```12:00PM - 04:00PM, 06:00PM - 09:00PM```")
+        await channel.send(f"Please input your active times for `{day}` in your timezone!\nOnly timestamps of 15-minute intervals are accepted (except 11:59PM), example:\n```12:00PM - 04:15PM, 06:30PM - 11:59PM```")
         toSend = f"Your Active Hours for `{day}`:\n"
         msg = await client.wait_for("message", timeout = 300, check = checkauth)
         if msg.content == "cancel":
             return await channel.send("Cancelled!")
         time = [day.strip() for day in str(msg.content).lower().split(',')]
         toEdit = await channel.send(content = toSend)
-        data["mod_data"][mod]["hours"]["times"][day] = []
+        data["mod_data"][mod]["hours"]["times"][day] = {}
         for span in time:
-            if span not in data["mod_data"][mod]["hours"]["times"][day]:
-                data["mod_data"][mod]["hours"]["times"][day].append(span)
-                split = [mark.strip() for mark in span.split('-')]
-                start = split[0]
-                middle = False
-                end = split[1]
-                for hour in hours:
-                    if hour == start:
-                        middle = True
-                        pass
-                    elif middle == False:
-                        continue
-                    elif hour == end:
-                        middle = False
-                        toSend += f"`{span}`\n"
-                        await toEdit.edit(content = toSend)
-                        break
-                    time, newDay = convertTime(hours[hour], offset, day)
-                    if mod in data["active_hours"][newDay][time]:
-                        continue
-                    data["active_hours"][newDay][time].append(mod)
-                await handleFile("active_hours", "write")
-                await handleFile("mod_data", "write")
+            split = [mark.strip() for mark in span.split('-')]
+            start = split[0]
+            middle = False
+            end = split[1]
+            for hour in hours:
+                if hour == start:
+                    pass
+                elif middle == False:
+                    continue
+                elif hour == end:
+                    middle = False
+                    toSend += f"`{span}`\n"
+                    await toEdit.edit(content = toSend)
+                    break
+                time, newDay = convertTime(hours[hour], offset, day)
+                if mod in data["active_hours"][newDay][time]:
+                    continue
+                data["active_hours"][newDay][time].append(mod)
+                if not middle:
+                    data["mod_data"][mod]["hours"]["times"][day][time] = span
+                middle = True
+            await handleFile("active_hours", "write")
+            await handleFile("mod_data", "write")
 
 @active_group.command(name = "set", description = "Set your active hours")
 async def setzone(interaction: discord.Interaction):
     mod = str(interaction.user.id)
-    await interaction.response.send_message("Setup started! Please follow the instructions and examples exactly as presented.", ephemeral = True)
-    channel = interaction.channel
+    await interaction.response.send_message("Setup started in DMs! Please follow the instructions and examples exactly as presented.")
+    channel = interaction.user
     def checkauth(m):
-        return m.author == interaction.user
+        return m.guild == None and m.author == interaction.user and m.content in zones
     async def startsetup():
-        await interaction.followup.send(f"Please input your Timezone in UTC offset. For example, if you're in the Philippines just send:\n```+08:00```\n\nTo skip this step, input `skip`\nTo cancel anytime, input `cancel`")
+        await channel.send(f"Please input your Timezone in UTC offset.\nFor example, if you're in the Philippines input:\n```+08:00```\nIf you're in India:\n```+05:30```\n\nTo skip this step, input `skip`\nTo cancel anytime, input `cancel`")
         msg = await client.wait_for("message", timeout = 60, check = checkauth)
         await hasData(mod)
         if not msg.content == "skip":
@@ -366,6 +375,7 @@ async def setzone(interaction: discord.Interaction):
 @active_group.command(name = "view", description = "View your active hours")
 async def view(interaction: discord.Interaction):
     mod = str(interaction.user.id)
+    await hasData(mod)
     viewmsg = f"Your active dates and times:\n"
     for day in data["mod_data"][mod]["hours"]["times"]:
         if len(data["mod_data"][mod]["hours"]["times"][day]) > 0:
@@ -378,14 +388,14 @@ async def view(interaction: discord.Interaction):
 
 @active_group.command(name = "change", description = "Change your active hours")
 async def modify(interaction: discord.Interaction):
-    def checkauth(m):
-        return m.author == interaction.user
     mod = str(interaction.user.id)
-    await interaction.response.send_message("Setting up Active Hours.", ephemeral = True)
+    if data["mod_data"][mod]["time_offset"] == 0:
+        return await interaction.response.send_message("You have not set up your active hours! Please run `/active set` first.")
+    await interaction.response.send_message("Setting up Active Hours in DMs.")
     yourDays = []
     await setDays(interaction, yourDays)
     await setHours(mod, interaction, yourDays)
-    return await interaction.channel.send("Process completed!")
+    return await interaction.user.send("Process completed!")
 
 @active_group.command(name = "clear", description = "Clears all your active hours")
 async def clear(interaction: discord.Interaction):
@@ -397,9 +407,8 @@ async def clear(interaction: discord.Interaction):
     if msg.content == "YES":
         for day in data["active_hours"]:
             removeHours(mod, day)
-            for time in data["mod_data"][mod]["hours"]["times"][day]:
-                index = data["mod_data"][mod]["hours"]["times"][day].index(time)
-                data["mod_data"][mod]["hours"]["times"][day].pop(index)
+            for span in data["mod_data"][mod]["hours"]["times"][day]:
+                data["mod_data"][mod]["hours"]["times"][day].pop(span, None)
         data["mod_data"][mod]["hours"]["active"] = True
         await handleFile("active_hours", "write")
         await handleFile("mod_data", "write")
@@ -423,7 +432,7 @@ async def enable(interaction: discord.Interaction):
 
 client.tree.add_command(active_group, guild = GUILD)
 
-help_group = app_commands.Group(name = "help", description = "Information on the bot and its commands", default_permissions = discord.Permissions(manage_messages = True))
+help_group = app_commands.Group(name = "help", description = "Information on the bot and its commands", default_permissions = discord.Permissions(send_messages = True)) # manage_messages
 
 @help_group.command(name = "general", description = "Information on the bot and its commands")
 async def general(interaction: discord.Interaction):
@@ -440,7 +449,7 @@ async def general(interaction: discord.Interaction):
     )
     helpEmbed.add_field(
         name = "Active Hours",
-        value = "`/active set` - Sets the days and hours when you're available to actively moderate the server\n`/active view` - Displays in chat when your active hours are\n`/active disable` - Sets all your active hours to none\n`/active enable` - Returns your saved active hours",
+        value = "`/active set` - Sets the days and hours when you're available to actively moderate the server\n`/active view` - Displays in chat when your active hours are\n`/active change` - Changes your active hours on selected days\n`/active disable` - Sets all your active hours to none\n`/active enable` - Returns your saved active hours\n`/active clear` - Delete ALL your active hours",
         inline = False
     )
     helpEmbed.add_field(
@@ -498,6 +507,11 @@ async def active(interaction: discord.Interaction):
         inline = False
     )
     activeEmbed.add_field(
+        name = "`/active change`",
+        value = "Changes your active hours on the specified days you select.",
+        inline = False
+    )
+    activeEmbed.add_field(
         name = "`/active disable`",
         value = "Disable your current active hours, if ever you're going to be busy for a while.",
         inline = False
@@ -505,6 +519,11 @@ async def active(interaction: discord.Interaction):
     activeEmbed.add_field(
         name = "`/active enable`",
         value = "Revert the previous change, putting back the active hours you set.",
+        inline = False
+    )
+    activeEmbed.add_field(
+        name = "`/active clear`",
+        value = "Deletes all your active hours.",
         inline = False
     )
     return await interaction.response.send_message(embed = activeEmbed)
@@ -579,8 +598,8 @@ async def setupDisplay():
         embed = emptyDisplayEmbed
     return embed
 
-@admin_group.command(name = "onduty", description = "Sends a new On-Duty Display message")
-async def setlogs(interaction: discord.Interaction, channel: discord.TextChannel):
+@admin_group.command(name = "display", description = "Sends a new On-Duty Display message")
+async def display(interaction: discord.Interaction, channel: discord.TextChannel):
     toEmbed = discord.Embed()
     if data["config"]["display"]["msg"] == 0:
         toEmbed = await setupDisplay()
@@ -588,15 +607,22 @@ async def setlogs(interaction: discord.Interaction, channel: discord.TextChannel
         data["config"]["display"]["msg"] = display.id
         data["config"]["display"]["channel"] = channel.id
         await handleFile("config", "write")
-    oldChannel = client.get_channel(int(data["config"]["display"]["channel"]))
-    oldDisplay = await oldChannel.fetch_message(data["config"]["display"]["msg"])
-    await oldDisplay.delete()
-    toEmbed = await setupDisplay()
-    display = await channel.send(embed = toEmbed)
-    data["config"]["display"]["msg"] = display.id
-    data["config"]["display"]["channel"] = channel.id
-    await handleFile("config", "write")
+    else:
+        oldChannel = client.get_channel(int(data["config"]["display"]["channel"]))
+        oldDisplay = await oldChannel.fetch_message(data["config"]["display"]["msg"])
+        await oldDisplay.delete()
+        toEmbed = await setupDisplay()
+        display = await channel.send(embed = toEmbed)
+        data["config"]["display"]["msg"] = display.id
+        data["config"]["display"]["channel"] = channel.id
+        await handleFile("config", "write")
     return await interaction.response.send_message(f"Sent a new On-Duty Display message to {channel.mention}!")
+
+@admin_group.command(name = "reminders", description = "Set a channel for Active Hours reminders")
+async def remind(interaction: discord.Interaction, channel: discord.TextChannel):
+    data["config"]["remind"]["channel"] = channel.id
+    await handleFile("config", "write")
+    return await interaction.response.send_message(f"Set the reminder channel to {channel.mention}!")
 
 client.tree.add_command(admin_group, guild = GUILD)
 
@@ -615,12 +641,35 @@ async def onduty_check():
                 continue
             onduty.append(mod)
     for hour in data["active_hours"][day]:
-        if int(hour) - int(now) >= 0 and int(hour) - int(now) <= 15:
+        difference = int(hour) - int(now)
+        if difference >= -15 and difference <= 0:
             if len(data["active_hours"][day][hour]) > 0:
+                if difference == -15:
+                    if data["config"]["remind"]["sent"] or data["config"]["remind"]["channel"] == 0:
+                        pass
+                    else:
+                        toRemind = f""
+                        for mod in data["mod_data"]:
+                            for start in data["mod_data"][mod]["hours"]["times"][day]:
+                                if now == start:
+                                    toRemind += f"<@{mod}> "
+                        reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
+                        reminderEmbed = discord.Embed(
+                            title = "Reminder: Active Hours",
+                            description = "Hello there moderators! This is just a short reminder that your active hours have started!"
+                        )
+                        await reminderChannel.send(content = toRemind, embed = reminderEmbed)
+                        data["config"]["remind"]["sent"] = True
+                        await handleFile("config", "write")
+                else:
+                    data["config"]["remind"]["sent"] = False
+                    await handleFile("config", "write")
                 for mod in data["active_hours"][day][hour]:
                     if mod in onduty:
                         continue
                     active.append(mod)
+            else:
+                continue
         else:
             continue
     data["config"]["display"]["on_duty"] = onduty
@@ -680,4 +729,4 @@ async def status_check():
             return await sendLog(forceEndedLog)
 
 load_dotenv()
-client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
+client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.ERROR)
