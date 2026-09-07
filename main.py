@@ -690,7 +690,7 @@ async def onduty_check():
                         toRemind = f""
                         for mod in data["mod_data"]:
                             for start in data["mod_data"][mod]["hours"]["times"][day]:
-                                if now == start and data["mod_data"][mod][hours]["active"]:
+                                if now == start and data["mod_data"][mod]["hours"]["active"]:
                                     toRemind += f"<@{mod}> "
                         try:
                             reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
