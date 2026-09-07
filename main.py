@@ -690,7 +690,7 @@ async def onduty_check():
                         toRemind = f""
                         for mod in data["mod_data"]:
                             for start in data["mod_data"][mod]["hours"]["times"][day]:
-                                if now == start:
+                                if now == start and data["mod_data"][mod][hours]["active"]:
                                     toRemind += f"<@{mod}> "
                         try:
                             reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
@@ -750,7 +750,7 @@ async def status_check():
                         data["current_times"][mod]["status_check"]["msg"] = 0
                         data["current_times"][mod]["status_check"]["next"] = (now + 1200)
                         await handleFile("current_times", "write")
-                        return await interaction.response.edit_message(content = f"<t:{now}:R>\nYou've confirmed your active status! Thank you for your service. :saluting_face:", embed = None, view = None)
+                        await interaction.response.edit_message(content = f"<t:{now}:R>\nYou've confirmed your active status! Thank you for your service. :saluting_face:", embed = None, view = None)
                     button.callback = confirm
                     view = View()
                     view.add_item(button)
