@@ -702,10 +702,10 @@ async def onduty_check():
                                 pass
                             else:
                                 await reminderChannel.send(content = toRemind, embed = reminderEmbed)
-                            data["config"]["remind"]["sent"] = True
-                            await handleFile("config", "write")
                         except Exception as err:
                             print(err)
+                        data["config"]["remind"]["sent"] = True
+                        await handleFile("config", "write")
                 else:
                     data["config"]["remind"]["sent"] = False
                     await handleFile("config", "write")
@@ -765,6 +765,8 @@ async def status_check():
                         description = f"{user.mention}'s shift has been paused due to not responding to the status check.",
                         color = discord.Color.orange()
                     )
+                    data["current_times"][mod]["status_check"]["msg"] = 0
+                    await handleFile("current_times", "write")
                     return await sendLog(forcePausedLog)
         elif data["current_times"][mod]["paused"] and now > (data["current_times"][mod]["pauses"][len(data["current_times"][mod]["pauses"]) - 1] + 5400):
             totalhrs, totalmins = await endShift(mod)
@@ -791,4 +793,4 @@ async def connect_check():
             return print("Started status_check.")
 
 load_dotenv()
-client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.ERROR)
+client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
