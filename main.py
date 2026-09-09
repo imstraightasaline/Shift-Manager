@@ -5,6 +5,7 @@ import json
 import datetime
 import time
 import math
+import asyncio
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -303,7 +304,10 @@ async def setDays(interaction, yourDays):
     toSend = f""
     toSend = f"Please input the days you are active. Example:\n```Monday, Friday, Saturday, Sunday```"
     await channel.send(content = toSend)
-    msg = await client.wait_for("message", timeout = 300, check = checkauth)
+    try:
+        msg = await client.wait_for("message", timeout = 240, check = checkauth)
+    except asyncio.TimeoutError:
+        await channel.send("Timed out! Please run the command again.")
     if msg.content == "cancel":
         return await channel.send("Cancelled!")
     else:
@@ -332,13 +336,15 @@ async def setHours(mod, interaction, yourDays):
     offset = data["mod_data"][mod]["time_offset"]
     for day in yourDays:
         removeHours(mod, day)
-        await channel.send(f"Please input your active times for `{day}` in your timezone!\nOnly timestamps of 15-minute intervals are accepted (up to 11:59PM), example:\n```12:00PM - 04:15PM, 06:30PM - 11:59PM```")
-        toSend = f"Your Active Hours for `{day}`:\n"
-        msg = await client.wait_for("message", timeout = 300, check = checkauth)
+        await channel.send(f"Please input your active times for **{day.upper()}** in your timezone!\nOnly timestamps of 15-minute intervals are accepted (only up to 11:59PM), example:\n```12:00AM - 02:00AM, 10:30PM - 11:59PM```\n\nCannot accept times past 11:59PM, as they are under the next day and not this one.")
+        toSend = f"Your Active Hours for {day.upper()}:\n"
+        try:
+            msg = await client.wait_for("message", timeout = 240, check = checkauth)
+        except asyncio.TimeoutError:
+            await channel.send("Timed out! Please run the command again.")
         if msg.content == "cancel":
             return await channel.send("Cancelled!")
         time = [day.strip() for day in str(msg.content).lower().split(',')]
-        toEdit = await channel.send(content = toSend)
         data["mod_data"][mod]["hours"]["times"][day] = {}
         for span in time:
             split = [mark.strip() for mark in span.split('-')]
@@ -346,7 +352,11 @@ async def setHours(mod, interaction, yourDays):
             middle = False
             end = split[1]
             for hour in hours:
-                if hour == start:
+                if int(hours[end]) < int(hours[start]):
+                    await channel.send(f"ERROR: Invalid end time!\nYour input has an end time that is EARLIER than the start time. Can only accept up to `11:59pm`, as times after that are considered the next day.\nPlease input times past midnight on the following day instead.\n-")
+                    return await setHours(mod, interaction, yourDays)
+                elif hour == start:
+                    toEdit = await channel.send(content = toSend)
                     pass
                 elif middle == False:
                     continue
@@ -361,7 +371,7 @@ async def setHours(mod, interaction, yourDays):
                 data["active_hours"][newDay][time].append(mod)
                 if not middle:
                     data["mod_data"][mod]["hours"]["times"][day][time] = span
-                middle = True
+                    middle = True
             await handleFile("active_hours", "write")
             await handleFile("mod_data", "write")
 
@@ -374,7 +384,10 @@ async def setzone(interaction: discord.Interaction):
         return m.guild == None and m.author == interaction.user
     async def startsetup():
         await channel.send(f"Please input your Timezone in UTC offset.\nFor example, if you're in the Philippines input:\n```+08:00```\nIf you're in India:\n```+05:30```\n\nTo skip this step, input `skip`\nTo cancel anytime, input `cancel`")
-        msg = await client.wait_for("message", timeout = 60, check = checkauth)
+        try:
+            msg = await client.wait_for("message", timeout = 120, check = checkauth)
+        except asyncio.TimeoutError:
+            await channel.send("Timed out! Please run the command again.")
         await hasData(mod)
         if not msg.content == "skip" and msg.content in zones:
             timezone = convertZone(msg.content)
@@ -400,7 +413,7 @@ async def view(interaction: discord.Interaction):
     viewmsg = f"Your active dates and times:\n"
     for day in data["mod_data"][mod]["hours"]["times"]:
         if len(data["mod_data"][mod]["hours"]["times"][day]) > 0:
-            viewmsg += f"\n**{day}**:\n"
+            viewmsg += f"\n**{day.upper()}**:\n"
             for time in data["mod_data"][mod]["hours"]["times"][day]:
                 viewmsg += f"`{data['mod_data'][mod]['hours']['times'][day][time]}`\n"
         else:
@@ -426,7 +439,10 @@ async def clear(interaction: discord.Interaction):
     if data["mod_data"][mod]["time_offset"] == -100:
         return await interaction.response.send_message("Do you even have data to delete? lol")
     await interaction.response.send_message("ARE YOU SURE cus like this will delete ALL your active hours,\nyou could `/active disable` instead maybe..\nInput: `YES/NO`")
-    msg = await client.wait_for("message", timeout = 60, check = checkauth)
+    try:
+        msg = await client.wait_for("message", timeout = 60, check = checkauth)
+    except asyncio.TimeoutError:
+        await interaction.channel.send("Timed out! Please run the command again.")
     if msg.content == "YES":
         for day in data["active_hours"]:
             removeHours(mod, day)
