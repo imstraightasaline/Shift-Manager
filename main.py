@@ -28,6 +28,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
+intents.reactions = True
 client = commands.Bot(command_prefix = "p!", intents = intents)
 
 async def isOffline():
@@ -76,9 +77,9 @@ async def on_ready():
     timestamp = datetime.datetime.now()
     now = timestamp.strftime('%H:%M')
     print(f"[{now}] Logged on as {client.user}!")
-    status_check.start()
-    onduty_check.start()
-    connect_check.start()
+    if not connect_check.is_running():
+        connect_check.start()
+        print("Started connect_check.")
 
     try:
         for key in data:
@@ -134,6 +135,18 @@ async def on_disconnect():
     if reconnectAttempts == 8:
         await isOffline()
 
+vcDebounce = False
+
+@client.event
+async def on_voice_state_update(member, before, after):
+    global vcDebounce
+    if after.self_video and member.guild_permissions.mute_members == False and vcDebounce == False:
+        vcDebounce = True
+        await member.move_to(None)
+        await member.send("Hey there! You've been kicked from a VC because you opened your camera.\nA friendly reminder that our server does not allow cameras in VC as of [rule 16](<https://discord.com/channels/1522861009386209320/1522868794115227678/1522894399778984066>) due to privacy and safety concerns.\nThank you for understanding!")
+        vcDebounce = False
+    return
+
 shift_group = app_commands.Group(name = "shift", description = "Shift system", default_permissions = discord.Permissions(mute_members = True))
 
 @shift_group.command(name = "start", description = "Set your status to currently moderating")
@@ -185,7 +198,7 @@ async def endShift(mod):
     lastCheck = data["current_times"][mod]["status_check"]["msg"]
     if lastCheck > 0:
         check = await user.fetch_message(lastCheck)
-        await check.edit(content = f"<t:{end}:R>\n> Status Check cancelled as the shift has ended.", embed = None, view = None)
+        await check.edit(content = f"<t:{end}:R>\n> Status Check cancelled as the shift has ended.", embed = None)
     elif data["current_times"][mod]["paused"]:
         await resumeShift(mod)
     start = data["current_times"][mod]["start"]
@@ -217,9 +230,8 @@ async def end(interaction: discord.Interaction):
 async def pauseShift(mod):
     user = client.get_user(int(mod))
     now = round(datetime.datetime.now().timestamp())
-    if data["current_times"][mod]["status_check"]["msg"]:
-        check = await user.fetch_message(data["current_times"][mod]["status_check"]["msg"])
-        await check.edit(view = None)
+    if data["current_times"][mod]["status_check"]["msg"] > 0:
+        data["current_times"][mod]["status_check"]["msg"] = 0
     data["current_times"][mod]["paused"] = True
     data["current_times"][mod]["pauses"].append(now)
     await handleFile("current_times", "write")
@@ -761,29 +773,29 @@ async def status_check():
                         description = "Hello! If you're still here, please click the reaction down below. If you don't react within 10 minutes, your shift will be paused. Thank you!",
                         color = discord.Color.random()
                     )
-                    button = Button(label = "Still here!", style = discord.ButtonStyle.primary, emoji = "<:teehee:1524809416149569588>")
-                    async def confirm(interaction):
+                    msg = await user.send(f"<t:{now}:R>", embed = checkEmbed)
+                    await msg.add_reaction("<:teehee:1524809416149569588>")
+                    data["current_times"][mod]["status_check"]["msg"] = msg.id
+                    await handleFile("current_times", "write")
+                    def check(r, u):
+                        return r.message == msg and u == user
+                    try:
+                        reaction, user = await client.wait_for("reaction_add", timeout = 600, check = check)
+                    except asyncio.TimeoutError:
+                        await pauseShift(mod)
+                        await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{now + 5400}:R>.")
+                        forcePausedLog = discord.Embed(
+                            description = f"{user.mention}'s shift has been paused due to not responding to the status check.",
+                            color = discord.Color.orange()
+                        )
+                        data["current_times"][mod]["status_check"]["msg"] = 0
+                        await handleFile("current_times", "write")
+                        return await sendLog(forcePausedLog)
+                    else:
+                        await user.send("You've confirmed your active status! Thank you for your service. :saluting_face:")
                         data["current_times"][mod]["status_check"]["msg"] = 0
                         data["current_times"][mod]["status_check"]["next"] = (now + 1200)
-                        await handleFile("current_times", "write")
-                        await interaction.response.edit_message(content = f"<t:{now}:R>\nYou've confirmed your active status! Thank you for your service. :saluting_face:", embed = None, view = None)
-                    button.callback = confirm
-                    view = View()
-                    view.add_item(button)
-                    await handleFile("current_times", "write")
-                    msg = await user.send(f"<t:{now}:R>", embed = checkEmbed, view = view)
-                    data["current_times"][mod]["status_check"]["msg"] = msg.id
-                    return await handleFile("current_times", "write")
-                elif now > (data["current_times"][mod]["status_check"]["next"] + 600):
-                    await pauseShift(mod)
-                    await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{now + 5400}:R>.")
-                    forcePausedLog = discord.Embed(
-                        description = f"{user.mention}'s shift has been paused due to not responding to the status check.",
-                        color = discord.Color.orange()
-                    )
-                    data["current_times"][mod]["status_check"]["msg"] = 0
-                    await handleFile("current_times", "write")
-                    return await sendLog(forcePausedLog)
+                        return await handleFile("current_times", "write")
         elif data["current_times"][mod]["paused"] and now > (data["current_times"][mod]["pauses"][len(data["current_times"][mod]["pauses"]) - 1] + 5400):
             totalhrs, totalmins = await endShift(mod)
             await user.send(f"Your shift has automatically ended due to being paused for over 90 minutes! It lasted for `{totalhrs}` hours and `{totalmins}` minutes.")
@@ -793,20 +805,22 @@ async def status_check():
             )
             return await sendLog(forceEndedLog)
 
-@tasks.loop(minutes = 1)
+@tasks.loop(seconds = 30)
 async def connect_check():
     global reconnectAttempts
-    if not client.is_closed() and reconnectAttempts > 0:
-        timestamp = datetime.datetime.now()
-        now = timestamp.strftime('%H:%M')
-        reconnectAttempts = 0
-        print(f"[{now}] Client silently reconnected!")
+    if not client.is_closed():
+        if reconnectAttempts > 0:
+            timestamp = datetime.datetime.now()
+            now = timestamp.strftime('%H:%M')
+            reconnectAttempts = 0
+            print(f"[{now}] Client silently reconnected!")
         if not onduty_check.is_running():
             onduty_check.start()
-            return print("Started onduty_check.")
+            print("Started onduty_check.")
         if not status_check.is_running():
             status_check.start()
-            return print("Started status_check.")
+            print("Started status_check.")
+    return
 
 load_dotenv()
 client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
