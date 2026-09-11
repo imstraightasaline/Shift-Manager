@@ -722,6 +722,9 @@ async def onduty_check():
                                     toRemind += f"<@{mod}> "
                         try:
                             reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
+                        except Exception as err:
+                            print(err)
+                        else:
                             reminderEmbed = discord.Embed(
                                 title = "Reminder: Active Hours",
                                 description = "Hello there moderators! This is just a short reminder that your active hours have started!"
@@ -730,10 +733,8 @@ async def onduty_check():
                                 pass
                             else:
                                 await reminderChannel.send(content = toRemind, embed = reminderEmbed)
-                        except Exception as err:
-                            print(err)
-                        data["config"]["remind"]["sent"] = True
-                        await handleFile("config", "write")
+                            data["config"]["remind"]["sent"] = True
+                            await handleFile("config", "write")
                 else:
                     data["config"]["remind"]["sent"] = False
                     await handleFile("config", "write")
@@ -748,14 +749,15 @@ async def onduty_check():
     await handleFile("config", "write")
     try:
         channel = client.get_channel(int(data["config"]["display"]["channel"]))
+    except Exception as err:
+        print(err)
+    else:
         display = await channel.fetch_message(data["config"]["display"]["msg"])
         toEmbed = await setupDisplay()
         if toEmbed == display.embeds[0]:
             return
         else:
             return await display.edit(embed = toEmbed)
-    except Exception as err:
-        print(err)
 
 @tasks.loop(minutes = 1)
 async def status_check():
@@ -780,7 +782,7 @@ async def status_check():
                     def check(r, u):
                         return r.message == msg and u == user
                     try:
-                        reaction, user = await client.wait_for("reaction_add", timeout = 600, check = check)
+                        user = await client.wait_for("reaction_add", timeout = 600, check = check)
                     except asyncio.TimeoutError:
                         await pauseShift(mod)
                         await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{now + 5400}:R>.")
