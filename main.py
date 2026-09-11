@@ -782,7 +782,7 @@ async def status_check():
                     def check(r, u):
                         return r.message == msg and u == user
                     try:
-                        user = await client.wait_for("reaction_add", timeout = 600, check = check)
+                        reaction, user = await client.wait_for("reaction_add", timeout = 600, check = check)
                     except asyncio.TimeoutError:
                         await pauseShift(mod)
                         await user.send(f"You did not confirm your status and your shift has been paused!\nPlease unpause your shift by running `/shift continue`, else it will automatically end <t:{now + 5400}:R>.")
