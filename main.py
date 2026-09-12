@@ -126,7 +126,7 @@ async def on_disconnect():
     global reconnectAttempts
     timestamp = datetime.datetime.now()
     now = timestamp.strftime('%H:%M')
-    if reconnectAttempts == 0:
+    if reconnectAttempts == 1:
         print("Client disconnected! Stopping tasks.")
         onduty_check.cancel()
         status_check.cancel()
@@ -276,10 +276,10 @@ zones = ["-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00", "
 days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 hours = {"12:00am": "0000", "12:15am": "0015", "12:30am": "0030", "12:45am": "0045", "01:00am": "0100", "01:15am": "0115", "01:30am": "0130", "01:45am": "0145", "02:00am": "0200", "02:15am": "0215", "02:30am": "0230", "02:45am": "0245", "03:00am": "0300", "03:15am": "0315", "03:30am": "0330", "03:45am": "0345", "04:00am": "0400", "04:15am": "0415", "04:30am": "0430", "04:45am": "0445", "05:00am": "0500", "05:15am": "0515", "05:30am": "0530", "05:45am": "0545", "06:00am": "0600", "06:15am": "0615", "06:30am": "0630", "06:45am": "0645", "07:00am": "0700", "07:15am": "0715", "07:30am": "0730", "07:45am": "0745", "08:00am": "0800", "08:15am": "0815", "08:30am": "0830", "08:45am": "0845", "09:00am": "0900", "09:15am": "0915", "09:30am": "0930", "09:45am": "0945", "10:00am": "1000", "10:15am": "1015", "10:30am": "1030", "10:45am": "1045", "11:00am": "1100", "11:15am": "1115", "11:30am": "1130", "11:45am": "1145", "12:00pm": "1200", "12:15pm": "1215", "12:30pm": "1230", "12:45pm": "1245", "01:00pm": "1300", "01:15pm": "1315", "01:30pm": "1330", "01:45pm": "1345", "02:00pm": "1400", "02:15pm": "1415", "02:30pm": "1430", "02:45pm": "1445", "03:00pm": "1500", "03:15pm": "1515", "03:30pm": "1530", "03:45pm": "1545", "04:00pm": "1600", "04:15pm": "1615", "04:30pm": "1630", "04:45pm": "1645", "05:00pm": "1700", "05:15pm": "1715", "05:30pm": "1730", "05:45pm": "1745", "06:00pm": "1800", "06:15pm": "1815", "06:30pm": "1830", "06:45pm": "1845", "07:00pm": "1900", "07:15pm": "1915", "07:30pm": "1930", "07:45pm": "1945", "08:00pm": "2000", "08:15pm": "2015", "08:30pm": "2030", "08:45pm": "2045", "09:00pm": "2100", "09:15pm": "2115", "09:30pm": "2130", "09:45pm": "2145", "10:00pm": "2200", "10:15pm": "2215", "10:30pm": "2230", "10:45pm": "2245", "11:00pm": "2300", "11:15pm": "2315", "11:30pm": "2330", "11:45pm": "2345", "11:59pm": "2400"}
 
-def convertTime(time, offset, day):
+def convertTime(aTime, offset, day):
     offset = offset - 8
-    time = convertZone(time)
-    min, hour = math.modf(time)
+    aTime = convertZone(aTime)
+    min, hour = math.modf(aTime)
     offmin, offhour = math.modf(offset)
     min = round(min * 100)
     offmin = round(offmin * 100)
@@ -306,8 +306,8 @@ def convertTime(time, offset, day):
     finalhour = str(int(finalhour))
     if len(finalhour) < 2:
         finalhour = "0" + finalhour
-    time = finalhour + finalmin
-    return time, day
+    aTime = finalhour + finalmin
+    return aTime, day
 
 async def setDays(interaction, yourDays):
     def checkauth(m):
@@ -323,12 +323,14 @@ async def setDays(interaction, yourDays):
     if msg.content == "cancel":
         return await channel.send("Cancelled!")
     else:
-        tempDays = [day.strip() for day in str(msg.content).lower().split(',')]
+        input = msg.content.lower()
+        tempDays = [day.strip() for day in input.split(',')]
         for aDay in tempDays:
             if aDay in days:
                 yourDays.append(aDay)
             else:
                 await channel.send(f"{aDay} is an invalid day! Please try again.")
+                yourDays = []
                 return await setDays(channel, set, yourDays)
     return yourDays
 
@@ -352,11 +354,12 @@ async def setHours(mod, interaction, yourDays):
         toSend = f"Your Active Hours for {day.upper()}:\n"
         try:
             msg = await client.wait_for("message", timeout = 240, check = checkauth)
+            input = msg.content.lower()
         except asyncio.TimeoutError:
             await channel.send("Timed out! Please run the command again.")
-        if msg.content == "cancel":
+        if input == "cancel":
             return await channel.send("Cancelled!")
-        time = [day.strip() for day in str(msg.content).lower().split(',')]
+        time = [day.strip() for day in input.split(',')]
         data["mod_data"][mod]["hours"]["times"][day] = {}
         for span in time:
             split = [mark.strip() for mark in span.split('-')]
@@ -377,12 +380,12 @@ async def setHours(mod, interaction, yourDays):
                     toSend += f"`{span}`\n"
                     await toEdit.edit(content = toSend)
                     break
-                time, newDay = convertTime(hours[hour], offset, day)
-                if mod in data["active_hours"][newDay][time]:
+                newTime, newDay = convertTime(hours[hour], offset, day)
+                if mod in data["active_hours"][newDay][newTime]:
                     continue
-                data["active_hours"][newDay][time].append(mod)
+                data["active_hours"][newDay][newTime].append(mod)
                 if not middle:
-                    data["mod_data"][mod]["hours"]["times"][day][time] = span
+                    data["mod_data"][mod]["hours"]["times"][day][newTime] = span
                     middle = True
             await handleFile("active_hours", "write")
             await handleFile("mod_data", "write")
@@ -401,13 +404,14 @@ async def setzone(interaction: discord.Interaction):
         except asyncio.TimeoutError:
             await channel.send("Timed out! Please run the command again.")
         await hasData(mod)
-        if not msg.content == "skip" and msg.content in zones:
-            timezone = convertZone(msg.content)
+        input = msg.content.lower()
+        if not input == "skip" and input in zones:
+            timezone = convertZone(input)
             data["mod_data"][mod]["time_offset"] = timezone
             await handleFile("mod_data", "write")
-        elif msg.content == "cancel":
+        elif input == "cancel":
             return await channel.send("Active hours setup cancelled!")
-        elif msg.content == "skip" and data["mod_data"][mod]["time_offset"] == -100:
+        elif input == "skip" and data["mod_data"][mod]["time_offset"] == -100:
             await channel.send("You need to set your Timezone in order to continue the setup!")
             return await startsetup()
         else:
@@ -418,19 +422,23 @@ async def setzone(interaction: discord.Interaction):
     await setHours(mod, interaction, yourDays)
     return await channel.send(f"You've succesfully set up your Active Hours!")
 
+def viewHours(mod, content):
+    for day in data["mod_data"][mod]["hours"]["times"]:
+        if len(data["mod_data"][mod]["hours"]["times"][day]) > 0:
+            content += f"\n**{day.upper()}**:\n"
+            for span in data["mod_data"][mod]["hours"]["times"][day]:
+                content += f"`{data['mod_data'][mod]['hours']['times'][day][span]}`\n"
+        else:
+            pass
+    return content
+
 @active_group.command(name = "view", description = "View your active hours")
 async def view(interaction: discord.Interaction):
     mod = str(interaction.user.id)
     await hasData(mod)
-    viewmsg = f"Your active dates and times:\n"
-    for day in data["mod_data"][mod]["hours"]["times"]:
-        if len(data["mod_data"][mod]["hours"]["times"][day]) > 0:
-            viewmsg += f"\n**{day.upper()}**:\n"
-            for time in data["mod_data"][mod]["hours"]["times"][day]:
-                viewmsg += f"`{data['mod_data'][mod]['hours']['times'][day][time]}`\n"
-        else:
-            pass
-    return await interaction.response.send_message(content = viewmsg)
+    hours = f"Your active dates and times:\n"
+    hours = viewHours(mod, hours)
+    return await interaction.response.send_message(content = hours)
 
 @active_group.command(name = "change", description = "Change your active hours")
 async def modify(interaction: discord.Interaction):
@@ -679,8 +687,8 @@ async def remind(interaction: discord.Interaction, channel: discord.TextChannel)
     await handleFile("config", "write")
     return await interaction.response.send_message(f"Set the reminder channel to {channel.mention}!")
 
-@admin_group.command(name = "viewhours", description = "Displays total shift time of all mods")
-async def viewhours(interaction: discord.Interaction):
+@admin_group.command(name = "totalhours", description = "Displays total shift time of all mods")
+async def totalhours(interaction: discord.Interaction):
     desc = f"Below is a list of the total Shift hours of all moderators:\n"
     for mod in data["mod_data"]:
         total = data["mod_data"][mod]["total_time"]
@@ -693,10 +701,86 @@ async def viewhours(interaction: discord.Interaction):
         )
     return await interaction.response.send_message(embed = displayHours)
 
+@admin_group.command(name = "viewmod", description = "Displays stats of a moderator")
+async def viewmod(interaction: discord.Interaction, user: discord.User):
+    mod = str(user.id)
+    await hasData(mod)
+    total = data["mod_data"][mod]["total_time"]
+    hrs = time.strftime("%H", time.gmtime(total))
+    mins = time.strftime("%M", time.gmtime(total))
+    view = discord.Embed(
+        title = "Moderator Information",
+        description = f"{user.mention}"
+    )
+    view.set_thumbnail(url = user.avatar.url)
+    view.add_field(
+        name = f"Total Time",
+        value = f"`{hrs}`h `{mins}`m",
+        inline = False
+    )
+    hours = f""
+    hours = viewHours(mod, hours)
+    view.add_field(
+        name = "Active Hours",
+        value = hours,
+        inline = False
+    )
+    return await interaction.response.send_message(embed = view)
+
+@app_commands.choices(method = [
+    app_commands.Choice(name="Disable Hours", value=1),
+    app_commands.Choice(name="Clear Hours", value=2),
+    app_commands.Choice(name="Pause Shift", value=3)
+])
+@admin_group.command(name = "manage", description = "Manages mod data")
+async def manage(interaction: discord.Interaction, user: discord.User, method: app_commands.Choice[int], do: str):
+    mod = str(user.id)
+    match method.value:
+        case 1:
+            match do:
+                case "True":
+                    data["mod_data"][mod]["hours"]["active"] = True
+                    await handleFile("mod_data", "write")
+                    return await interaction.response.send_message(f"Enabled `@{user.name}`'s Active Hours.")
+                case "False":
+                    data["mod_data"][mod]["hours"]["active"] = False
+                    await handleFile("mod_data", "write")
+                    return await interaction.response.send_message(f"Disabled `@{user.name}`'s Active Hours.")
+                case _:
+                    return await interaction.response.send_message("An error occured with the command.")
+        case 2:
+            tempDays = [day.strip() for day in str(do).lower().split(',')]
+            await interaction.response.send_message(f"Clearing hours for mod `@{user.name}`...")
+            for day in tempDays:
+                if day in days:
+                    removeHours(mod, day)
+                    placeholder = data["mod_data"][mod]["hours"]["times"][day].copy()
+                    for span in placeholder:
+                        data["mod_data"][mod]["hours"]["times"][day].pop(span, None)
+                    await handleFile("active_hours", "write")
+                    await handleFile("mod_data", "write")
+                    await interaction.channel.send(f"Cleared hours for **{day.upper()}**.")
+                else:
+                    await interaction.channel.send(f"{day} is an invalid day! Please try again.")
+            return await interaction.channel.send("Process finished!")
+        case 3:
+            match do:
+                case "True":
+                    await pauseShift(mod)
+                    await user.send("Hello! Your shift has been manually paused by an administrator. Please run `/shift continue` if you'd like to resume, otherwise it will end in 90 minutes.")
+                    return await interaction.response.send_message(f"Paused shift for `@{user.name}`.")
+                case _:
+                    return await interaction.response.send_message("An error occured with the command.")
+        case _:
+            return await interaction.response.send_message("An error occured with the command.")
+
+
 client.tree.add_command(admin_group, guild = GUILD)
 
 @tasks.loop(seconds = 15)
 async def onduty_check():
+    if client.is_closed():
+        return
     if data["config"]["display"]["msg"] == 0:
         return
     timestamp = datetime.datetime.now()
@@ -713,31 +797,31 @@ async def onduty_check():
         difference = int(hour) - int(now)
         if difference >= -15 and difference <= 0:
             if len(data["active_hours"][day][hour]) > 0:
-                if difference == 0:
-                    if data["config"]["remind"]["sent"] == False and data["config"]["remind"]["channel"] > 0:
-                        toRemind = f""
-                        for mod in data["mod_data"]:
-                            for start in data["mod_data"][mod]["hours"]["times"][day]:
-                                if now == start and data["mod_data"][mod]["hours"]["active"]:
-                                    toRemind += f"<@{mod}> "
-                        try:
-                            reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
-                        except Exception as err:
-                            print(err)
+                if difference == 0 and data["config"]["remind"]["sent"] == False and data["config"]["remind"]["channel"] > 0:
+                    toRemind = f""
+                    for mod in data["mod_data"]:
+                        for start in data["mod_data"][mod]["hours"]["times"][day]:
+                            if now == start and data["mod_data"][mod]["hours"]["active"]:
+                                toRemind += f"<@{mod}> "
+                    try:
+                        reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
+                    except Exception as err:
+                        print(err)
+                    else:
+                        reminderEmbed = discord.Embed(
+                            title = "Reminder: Active Hours",
+                            description = "Hello there moderators! This is just a short reminder that your active hours have started!"
+                        )
+                        if toRemind == f"":
+                            pass
                         else:
-                            reminderEmbed = discord.Embed(
-                                title = "Reminder: Active Hours",
-                                description = "Hello there moderators! This is just a short reminder that your active hours have started!"
-                            )
-                            if toRemind == f"":
-                                pass
-                            else:
-                                await reminderChannel.send(content = toRemind, embed = reminderEmbed)
-                            data["config"]["remind"]["sent"] = True
-                            await handleFile("config", "write")
+                            await reminderChannel.send(content = toRemind, embed = reminderEmbed)
+                        data["config"]["remind"]["sent"] = True
+                        await handleFile("config", "write")
                 else:
-                    data["config"]["remind"]["sent"] = False
-                    await handleFile("config", "write")
+                    if data["config"]["remind"]["sent"]:
+                        data["config"]["remind"]["sent"] = False
+                        await handleFile("config", "write")
                 for mod in data["active_hours"][day][hour]:
                     if mod in onduty:
                         continue
@@ -761,6 +845,8 @@ async def onduty_check():
 
 @tasks.loop(minutes = 1)
 async def status_check():
+    if client.is_closed():
+        return
     global reconnectAttempts
     reconnectAttempts = 0
     tempdict = data["current_times"].copy()
@@ -769,7 +855,7 @@ async def status_check():
         user = client.get_user(int(mod))
         if not data["current_times"][mod]["paused"]:
             if now > data["current_times"][mod]["status_check"]["next"]:
-                if data["current_times"][mod]["status_check"]["msg"] == 0:
+                async def sendCheck(mod, user, now):
                     checkEmbed = discord.Embed(
                         title = "Status Check",
                         description = "Hello! If you're still here, please click the reaction down below. If you don't react within 10 minutes, your shift will be paused. Thank you!",
@@ -798,6 +884,10 @@ async def status_check():
                         data["current_times"][mod]["status_check"]["msg"] = 0
                         data["current_times"][mod]["status_check"]["next"] = (now + 1200)
                         return await handleFile("current_times", "write")
+                if data["current_times"][mod]["status_check"]["msg"] == 0:
+                    await sendCheck(mod, user, now)
+                elif now > (data["current_times"][mod]["status_check"]["next"] + 660):
+                    await sendCheck(mod, user, now)
         elif data["current_times"][mod]["paused"] and now > (data["current_times"][mod]["pauses"][len(data["current_times"][mod]["pauses"]) - 1] + 5400):
             totalhrs, totalmins = await endShift(mod)
             await user.send(f"Your shift has automatically ended due to being paused for over 90 minutes! It lasted for `{totalhrs}` hours and `{totalmins}` minutes.")
