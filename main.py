@@ -57,7 +57,7 @@ async def hasData(mod):
     else:
         data["mod_data"][mod] = {
             "total_time": 0,
-            "time_offset": -100,
+            "time_offset": -1,
             "hours": {
                 "active": True,
                 "times": {
@@ -77,9 +77,9 @@ async def on_ready():
     timestamp = datetime.datetime.now()
     now = timestamp.strftime('%H:%M')
     print(f"[{now}] Logged on as {client.user}!")
-    if not connect_check.is_running():
-        connect_check.start()
-        print("Started connect_check.")
+    onduty_check.start()
+    status_check.start()
+    print("Started tasks.")
 
     try:
         for key in data:
@@ -116,20 +116,12 @@ async def on_ready():
         print(f"Error sending disconnection report: {err}")
 
 @client.event
-async def on_connect():
-    timestamp = datetime.datetime.now()
-    now = timestamp.strftime('%H:%M')
-    print(f"[{now}] Client connected!")
-
-@client.event
 async def on_disconnect():
     global reconnectAttempts
     timestamp = datetime.datetime.now()
     now = timestamp.strftime('%H:%M')
-    if reconnectAttempts == 1:
-        print("Client disconnected! Stopping tasks.")
-        onduty_check.cancel()
-        status_check.cancel()
+    if reconnectAttempts == 0:
+        print("Client disconnected!")
     reconnectAttempts += 1
     print(f"[{now}] Reconnect attempt: {reconnectAttempts}")
     if reconnectAttempts == 8:
@@ -411,7 +403,7 @@ async def setzone(interaction: discord.Interaction):
             await handleFile("mod_data", "write")
         elif input == "cancel":
             return await channel.send("Active hours setup cancelled!")
-        elif input == "skip" and data["mod_data"][mod]["time_offset"] == -100:
+        elif input == "skip" and data["mod_data"][mod]["time_offset"] == -1:
             await channel.send("You need to set your Timezone in order to continue the setup!")
             return await startsetup()
         else:
@@ -443,7 +435,7 @@ async def view(interaction: discord.Interaction):
 @active_group.command(name = "change", description = "Change your active hours")
 async def modify(interaction: discord.Interaction):
     mod = str(interaction.user.id)
-    if data["mod_data"][mod]["time_offset"] == -100:
+    if data["mod_data"][mod]["time_offset"] == -1:
         return await interaction.response.send_message("You have not set up your active hours! Please run `/active set` first.")
     await interaction.response.send_message("Setting up Active Hours in DMs.")
     yourDays = []
@@ -456,7 +448,7 @@ async def clear(interaction: discord.Interaction):
     def checkauth(m):
         return m.author == interaction.user
     mod = str(interaction.user.id)
-    if data["mod_data"][mod]["time_offset"] == -100:
+    if data["mod_data"][mod]["time_offset"] == -1:
         return await interaction.response.send_message("Do you even have data to delete? lol")
     await interaction.response.send_message("ARE YOU SURE cus like this will delete ALL your active hours,\nyou could `/active disable` instead maybe..\nInput: `YES/NO`")
     try:
@@ -640,10 +632,7 @@ async def setupDisplay():
                     onduty += f"<@{mod}>\n"
         if len(data["config"]["display"]["active"]) > 0:
             for mod in data["config"]["display"]["active"]:
-                if data["mod_data"][mod]["hours"]["active"]:
-                    active += f"<@{mod}>\n"
-                else:
-                    continue
+                active += f"<@{mod}>\n"
         embed.add_field(
             name = "On-Duty",
             value = onduty,
@@ -792,10 +781,11 @@ async def onduty_check():
         for mod in data["current_times"]:
             if data["current_times"][mod]["paused"]:
                 continue
-            onduty.append(mod)
+            else:
+                onduty.append(mod)
     for hour in data["active_hours"][day]:
-        difference = int(hour) - int(now)
-        if difference >= -15 and difference <= 0:
+        difference = int(now) - int(hour)
+        if difference >= 0 and difference < 15:
             if len(data["active_hours"][day][hour]) > 0:
                 if difference == 0 and data["config"]["remind"]["sent"] == False and data["config"]["remind"]["channel"] > 0:
                     toRemind = f""
@@ -812,20 +802,20 @@ async def onduty_check():
                             title = "Reminder: Active Hours",
                             description = "Hello there moderators! This is just a short reminder that your active hours have started!"
                         )
+                        data["config"]["remind"]["sent"] = True
                         if toRemind == f"":
                             pass
                         else:
                             await reminderChannel.send(content = toRemind, embed = reminderEmbed)
-                        data["config"]["remind"]["sent"] = True
-                        await handleFile("config", "write")
-                else:
-                    if data["config"]["remind"]["sent"]:
-                        data["config"]["remind"]["sent"] = False
-                        await handleFile("config", "write")
+                elif data["config"]["remind"]["sent"]:
+                    data["config"]["remind"]["sent"] = False
                 for mod in data["active_hours"][day][hour]:
-                    if mod in onduty:
+                    if mod in onduty or not data["mod_data"][mod]["hours"]["active"]:
                         continue
-                    active.append(mod)
+                    else:
+                        active.append(mod)
+        elif difference < 0:
+            break
         else:
             continue
     data["config"]["display"]["on_duty"] = onduty
@@ -836,12 +826,16 @@ async def onduty_check():
     except Exception as err:
         print(err)
     else:
-        display = await channel.fetch_message(data["config"]["display"]["msg"])
-        toEmbed = await setupDisplay()
-        if toEmbed == display.embeds[0]:
-            return
+        try:
+            display = await channel.fetch_message(data["config"]["display"]["msg"])
+        except Exception as err:
+            print(err)
         else:
-            return await display.edit(embed = toEmbed)
+            toEmbed = await setupDisplay()
+            if toEmbed == display.embeds[0]:
+                return
+            else:
+                return await display.edit(embed = toEmbed)
 
 @tasks.loop(minutes = 1)
 async def status_check():
@@ -896,23 +890,6 @@ async def status_check():
                 color = discord.Color.red()
             )
             return await sendLog(forceEndedLog)
-
-@tasks.loop(seconds = 30)
-async def connect_check():
-    global reconnectAttempts
-    if not client.is_closed():
-        if reconnectAttempts > 0:
-            timestamp = datetime.datetime.now()
-            now = timestamp.strftime('%H:%M')
-            reconnectAttempts = 0
-            print(f"[{now}] Client silently reconnected!")
-        if not onduty_check.is_running():
-            onduty_check.start()
-            print("Started onduty_check.")
-        if not status_check.is_running():
-            status_check.start()
-            print("Started status_check.")
-    return
 
 load_dotenv()
 client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
