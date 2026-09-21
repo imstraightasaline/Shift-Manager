@@ -830,6 +830,7 @@ remindDebounce = False
 async def onduty_check():
     global reconnectAttempts
     global remindDebounce
+    timestamp = datetime.datetime.now()
     if client.is_closed():
         return
     elif reconnectAttempts > 0:
@@ -838,7 +839,6 @@ async def onduty_check():
         pass
     if int(data["config"]["display"]["msg"]) == 0:
         return
-    timestamp = datetime.datetime.now()
     now = timestamp.strftime('%H%M')
     day = timestamp.strftime('%A').lower()
     onduty = []
