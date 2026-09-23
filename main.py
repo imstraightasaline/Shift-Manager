@@ -78,6 +78,10 @@ async def on_ready():
     timestamp = datetime.datetime.now()
     now = timestamp.strftime('%H:%M')
     print(f"[{now}] Logged on as {client.user}!")
+    if not online_check.is_running():
+        online_check.start()
+        print("Started online_check.")
+        pass
     if not onduty_check.is_running():
         onduty_check.start()
         print("Started onduty_check.")
@@ -971,4 +975,4 @@ async def status_check():
             return await sendLog(forceEndedLog)
 
 load_dotenv()
-client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.DEBUG)
+client.run(os.getenv("TOKEN"), log_handler = handler, log_level = logging.ERROR)
