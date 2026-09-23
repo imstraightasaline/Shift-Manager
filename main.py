@@ -154,10 +154,18 @@ async def on_disconnect():
     now = timestamp.strftime('%H:%M')
     if reconnectAttempts == 0:
         print("Client disconnected!")
+        if onduty_check.is_running():
+            onduty_check.cancel()
+            print("onduty_check cancelled.")
+            pass
+        if status_check.is_running():
+            status_check.cancel()
+            print("status_check cancelled.")
+            pass
     reconnectAttempts += 1
     print(f"[{now}] Reconnect attempt: {reconnectAttempts}")
     if reconnectAttempts == 8:
-        await isOffline()
+        return await isOffline()
 
 vcDebounce = False
 
@@ -826,17 +834,31 @@ client.tree.add_command(admin_group, guild = GUILD)
 
 remindDebounce = False
 
-@tasks.loop(seconds = 15)
-async def onduty_check():
+@tasks.loop(seconds = 10)
+async def online_check():
     global reconnectAttempts
-    global remindDebounce
     timestamp = datetime.datetime.now()
     if client.is_closed():
         return
-    elif reconnectAttempts > 0:
-        print(f"[{timestamp.strftime('%H:%M')}] Client silently reconnected.")
-        reconnectAttempts = 0
-        pass
+    else:
+        if reconnectAttempts > 0:
+            print(f"[{timestamp.strftime('%H:%M')}] Client silently reconnected.")
+            reconnectAttempts = 0
+            pass
+        if not onduty_check.is_running():
+            onduty_check.start()
+            print("onduty_check started.")
+            pass
+        if not status_check.is_running():
+            status_check.start()
+            print("onduty_check started.")
+            pass
+        return
+
+@tasks.loop(seconds = 15)
+async def onduty_check():
+    global remindDebounce
+    timestamp = datetime.datetime.now()
     if int(data["config"]["display"]["msg"]) == 0:
         return
     now = timestamp.strftime('%H%M')
@@ -905,12 +927,13 @@ async def onduty_check():
             if toEmbed == display.embeds[0]:
                 return
             else:
-                return await display.edit(embed = toEmbed)
+                if client.is_closed():
+                    return
+                else:
+                    return await display.edit(embed = toEmbed)
 
 @tasks.loop(minutes = 1)
 async def status_check():
-    if client.is_closed():
-        return
     tempdict = data["current_times"].copy()
     now = round(datetime.datetime.now().timestamp())
     for mod in tempdict:
