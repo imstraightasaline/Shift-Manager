@@ -19,6 +19,13 @@ async def handleFile(name, method):
     else:
         with open("./data/" + name + ".json", "w", encoding = "utf-8") as f: json.dump(data[name], f, ensure_ascii = False, indent = 4)
 
+def printFile(text):
+    timestamp = datetime.datetime.now()
+    now = timestamp.strftime('[%H:%M] ')
+    f = open("logs.txt", "w", encoding = "utf-8")
+    print(now + text, file = f)
+    return f.close()
+
 GUILD = discord.Object(id = 1522861009386209320)
 
 reconnectAttempts = 0
@@ -33,7 +40,7 @@ client = commands.Bot(command_prefix = "p!", intents = intents)
 
 async def isOffline():
     if len(data["current_times"]) > 0:
-        print(f"Bot offline! Pausing shifts.")
+        printFile(f"Bot offline! Pausing shifts.")
         for mod in data["current_times"]:
             if data["current_times"][mod]["paused"]:
                 continue
@@ -41,7 +48,7 @@ async def isOffline():
                 await pauseShift(mod)
         data["config"]["reconnected"] = True
         await handleFile("config", "write")
-        return print(f"Shifts paused!")
+        return printFile(f"Shifts paused!")
 
 async def sendLog(toEmbed, msgContent = ""):
     if data["config"]["logs"] == 0:
@@ -50,7 +57,7 @@ async def sendLog(toEmbed, msgContent = ""):
         channel = client.get_channel(data["config"]["logs"])
         await channel.send(embed = toEmbed, content = msgContent)
     except Exception as err:
-        print(err)
+        printFile(err)
 
 async def hasData(mod):
     if mod in data["mod_data"]:
@@ -75,36 +82,34 @@ async def hasData(mod):
 
 @client.event
 async def on_ready():
-    timestamp = datetime.datetime.now()
-    now = timestamp.strftime('%H:%M')
-    print(f"[{now}] Logged on as {client.user}!")
+    printFile(f"Logged on as {client.user}!")
     if not online_check.is_running():
         online_check.start()
-        print("Started online_check.")
+        printFile("Started online_check.")
         pass
     if not onduty_check.is_running():
         onduty_check.start()
-        print("Started onduty_check.")
+        printFile("Started onduty_check.")
         pass
     if not status_check.is_running():
         status_check.start()
-        print("Started status_check.")
+        printFile("Started status_check.")
         pass
 
     try:
         for key in data:
             await handleFile(key, "read")
-            print(f"Read file {key}.json")
+            printFile(f"Read file {key}.json")
         pass
     except Exception as err:
-        print(f"ERROR READING FILES:\n{err}")
+        printFile(f"ERROR READING FILES:\n{err}")
 
     try:
         synced = await client.tree.sync(guild = GUILD)
-        print(f"Synced {len(synced)} commands to guild {GUILD.id}")
+        printFile(f"Synced {len(synced)} commands to guild {GUILD.id}")
         pass
     except Exception as err:
-        print(f"ERROR SYNCING COMMANDS:\n{err}")
+        printFile(f"ERROR SYNCING COMMANDS:\n{err}")
 
     try:
         if data["config"]["reconnected"]:
@@ -127,11 +132,11 @@ async def on_ready():
                     try:
                         channel = client.get_channel(int(data["config"]["remind"]["channel"]))
                     except Exception as err:
-                        print(err)
+                        printFile(err)
                     else:
                         await channel.send(embed = preCrash, content = toPing)
     except Exception as err:
-        print(err)
+        printFile(err)
 
 testmsg = int
 
@@ -154,20 +159,18 @@ async def on_raw_reaction_add(payload):
 @client.event
 async def on_disconnect():
     global reconnectAttempts
-    timestamp = datetime.datetime.now()
-    now = timestamp.strftime('%H:%M')
     if reconnectAttempts == 0:
-        print("Client disconnected!")
+        printFile("Client disconnected!")
         if onduty_check.is_running():
             onduty_check.cancel()
-            print("onduty_check cancelled.")
+            printFile("onduty_check cancelled.")
             pass
         if status_check.is_running():
             status_check.cancel()
-            print("status_check cancelled.")
+            printFile("status_check cancelled.")
             pass
     reconnectAttempts += 1
-    print(f"[{now}] Reconnect attempt: {reconnectAttempts}")
+    printFile(f"Reconnect attempt: {reconnectAttempts}")
     if reconnectAttempts == 8:
         return await isOffline()
 
@@ -267,8 +270,7 @@ async def pauseShift(mod):
     now = datetime.datetime.now().timestamp()
     rounded = round(now)
     if data["current_times"][mod]["paused"]:
-        formatted = now.strftime("%H:%M")
-        return print(f"[{formatted}] {mod}'s shift is already paused.")
+        return printFile(f"{mod}'s shift is already paused.")
     if int(data["current_times"][mod]["status_check"]["msg"]) > 0:
         data["current_times"][mod]["status_check"]["msg"] = 0
     data["current_times"][mod]["paused"] = True
@@ -667,6 +669,7 @@ displayEmbed.set_thumbnail(url = "https://cdn.discordapp.com/icons/1522861009386
 
 async def setupDisplay():
     embed = discord.Embed()
+    now = datetime.datetime.now()
     if len(data["config"]["display"]["on_duty"]) > 0 or len(data["config"]["display"]["active"]) > 0:
         embed = displayEmbed.copy()
         onduty = f""
@@ -690,8 +693,11 @@ async def setupDisplay():
             value = active,
             inline = False
         )
+        pass
     else:
         embed = emptyDisplayEmbed
+        pass
+    embed.timestamp = now
     return embed
 
 @admin_group.command(name = "display", description = "Sends a new On-Duty Display message")
@@ -709,7 +715,7 @@ async def display(interaction: discord.Interaction, channel: discord.TextChannel
             oldDisplay = await oldChannel.fetch_message(int(data["config"]["display"]["msg"]))
             await oldDisplay.delete()
         except Exception as err:
-            print(err)
+            printFile(err)
         toEmbed = await setupDisplay()
         display = await channel.send(embed = toEmbed)
         data["config"]["display"]["msg"] = display.id
@@ -846,16 +852,16 @@ async def online_check():
         return
     else:
         if reconnectAttempts > 0:
-            print(f"[{timestamp.strftime('%H:%M')}] Client silently reconnected.")
+            printFile(f"Client silently reconnected.")
             reconnectAttempts = 0
             pass
         if not onduty_check.is_running():
             onduty_check.start()
-            print("onduty_check started.")
+            printFile("onduty_check started.")
             pass
         if not status_check.is_running():
             status_check.start()
-            print("onduty_check started.")
+            printFile("onduty_check started.")
             pass
         return
 
@@ -888,7 +894,7 @@ async def onduty_check():
                     try:
                         reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
                     except Exception as err:
-                        print(err)
+                        printFile(err)
                     else:
                         reminderEmbed = discord.Embed(
                             title = "Reminder: Active Hours",
@@ -920,12 +926,12 @@ async def onduty_check():
     try:
         channel = client.get_channel(int(data["config"]["display"]["channel"]))
     except Exception as err:
-        print(err)
+        printFile(err)
     else:
         try:
             display = await channel.fetch_message(int(data["config"]["display"]["msg"]))
         except Exception as err:
-            print(err)
+            printFile(err)
         else:
             toEmbed = await setupDisplay()
             if toEmbed == display.embeds[0]:
