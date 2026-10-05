@@ -57,7 +57,7 @@ async def sendLog(toEmbed, msgContent = ""):
         channel = client.get_channel(data["config"]["logs"])
         await channel.send(embed = toEmbed, content = msgContent)
     except Exception as err:
-        printFile(err)
+        printFile(repr(err))
 
 async def hasData(mod):
     if mod in data["mod_data"]:
@@ -132,11 +132,11 @@ async def on_ready():
                     try:
                         channel = client.get_channel(int(data["config"]["remind"]["channel"]))
                     except Exception as err:
-                        printFile(err)
+                        printFile(repr(err))
                     else:
                         await channel.send(embed = preCrash, content = toPing)
     except Exception as err:
-        printFile(err)
+        printFile(repr(err))
 
 testmsg = int
 
@@ -715,7 +715,7 @@ async def display(interaction: discord.Interaction, channel: discord.TextChannel
             oldDisplay = await oldChannel.fetch_message(int(data["config"]["display"]["msg"]))
             await oldDisplay.delete()
         except Exception as err:
-            printFile(err)
+            printFile(repr(err))
         toEmbed = await setupDisplay()
         display = await channel.send(embed = toEmbed)
         data["config"]["display"]["msg"] = display.id
@@ -894,7 +894,7 @@ async def onduty_check():
                     try:
                         reminderChannel = client.get_channel(data["config"]["remind"]["channel"])
                     except Exception as err:
-                        printFile(err)
+                        printFile(repr(err))
                     else:
                         reminderEmbed = discord.Embed(
                             title = "Reminder: Active Hours",
@@ -926,12 +926,12 @@ async def onduty_check():
     try:
         channel = client.get_channel(int(data["config"]["display"]["channel"]))
     except Exception as err:
-        printFile(err)
+        printFile(repr(err))
     else:
         try:
             display = await channel.fetch_message(int(data["config"]["display"]["msg"]))
         except Exception as err:
-            printFile(err)
+            printFile(repr(err))
         else:
             toEmbed = await setupDisplay()
             if toEmbed == display.embeds[0]:
